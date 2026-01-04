@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, Pressable, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect, useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { useDatabase } from '../db/Databasecontext';
+import { useDatabase } from '../db/DatabaseContext';
 import { createWorkout, getRecentWorkouts } from '../db/queries';
 import { Workout } from '../db/schema';
 

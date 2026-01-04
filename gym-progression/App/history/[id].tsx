@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useDatabase } from '../../db/Databasecontext';
+import { useDatabase } from '../../db/DatabaseContext';
 import { getWorkoutWithExercises, deleteWorkout } from '../../db/queries';
 import { WorkoutWithExercises } from '../../db/schema';
 

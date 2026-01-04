@@ -1,5 +1,5 @@
 import { Stack } from 'expo-router';
-import { DatabaseProvider } from '../db/Databasecontext';
+import { DatabaseProvider } from '../db/DatabaseContext';
 
 export default function RootLayout() {
   return (
