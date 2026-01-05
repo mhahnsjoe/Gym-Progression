@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   Modal,
+  Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useDatabase } from '../../db/DatabaseContext';
@@ -20,6 +21,7 @@ import {
   deleteExercise,
   finishWorkout,
   deleteWorkout,
+  saveWorkoutAsTemplate,
 } from '../../db/queries';
 import { WorkoutWithExercises } from '../../db/schema';
 
@@ -47,6 +49,8 @@ export default function WorkoutScreen() {
   const [customExercise, setCustomExercise] = useState('');
   const [finishNote, setFinishNote] = useState('');
   const [showFinishModal, setShowFinishModal] = useState(false);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState('');
 
   const loadWorkout = useCallback(async () => {
     if (!id) return;
@@ -103,6 +107,15 @@ export default function WorkoutScreen() {
 
   const handleFinish = async () => {
     if (!id) return;
+    
+    if (saveAsTemplate && templateName.trim()) {
+      try {
+        await saveWorkoutAsTemplate(db, parseInt(id), templateName.trim());
+      } catch (error) {
+        console.error('Failed to save template:', error);
+      }
+    }
+    
     await finishWorkout(db, parseInt(id), finishNote);
     router.replace('/');
   };
@@ -124,6 +137,26 @@ export default function WorkoutScreen() {
         },
       ]
     );
+  };
+
+  const openFinishModal = () => {
+    if (workout?.exercises.length) {
+      const firstExercise = workout.exercises[0].name;
+      if (firstExercise.toLowerCase().includes('bench') || 
+          firstExercise.toLowerCase().includes('press')) {
+        setTemplateName('Push Day');
+      } else if (firstExercise.toLowerCase().includes('squat') ||
+                 firstExercise.toLowerCase().includes('leg')) {
+        setTemplateName('Leg Day');
+      } else if (firstExercise.toLowerCase().includes('pull') ||
+                 firstExercise.toLowerCase().includes('row') ||
+                 firstExercise.toLowerCase().includes('deadlift')) {
+        setTemplateName('Pull Day');
+      } else {
+        setTemplateName('');
+      }
+    }
+    setShowFinishModal(true);
   };
 
   if (!workout) {
@@ -160,7 +193,7 @@ export default function WorkoutScreen() {
                   style={styles.input}
                   keyboardType="decimal-pad"
                   placeholder="0"
-                  placeholderTextColor="#666"
+                  placeholderTextColor="#999"
                   defaultValue={set.weight > 0 ? set.weight.toString() : ''}
                   onEndEditing={(e) =>
                     handleUpdateSet(set.id, e.nativeEvent.text, set.reps.toString())
@@ -170,7 +203,7 @@ export default function WorkoutScreen() {
                   style={styles.input}
                   keyboardType="number-pad"
                   placeholder="0"
-                  placeholderTextColor="#666"
+                  placeholderTextColor="#999"
                   defaultValue={set.reps > 0 ? set.reps.toString() : ''}
                   onEndEditing={(e) =>
                     handleUpdateSet(set.id, set.weight.toString(), e.nativeEvent.text)
@@ -197,7 +230,7 @@ export default function WorkoutScreen() {
         <Pressable style={styles.cancelButton} onPress={handleCancel}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </Pressable>
-        <Pressable style={styles.finishButton} onPress={() => setShowFinishModal(true)}>
+        <Pressable style={styles.finishButton} onPress={openFinishModal}>
           <Text style={styles.finishButtonText}>Finish Workout</Text>
         </Pressable>
       </View>
@@ -211,7 +244,7 @@ export default function WorkoutScreen() {
             <TextInput
               style={styles.customInput}
               placeholder="Custom exercise name..."
-              placeholderTextColor="#666"
+              placeholderTextColor="#999"
               value={customExercise}
               onChangeText={setCustomExercise}
               onSubmitEditing={() => handleAddExercise(customExercise)}
@@ -245,11 +278,35 @@ export default function WorkoutScreen() {
             <TextInput
               style={[styles.customInput, styles.noteInput]}
               placeholder="How did it go? (optional)"
-              placeholderTextColor="#666"
+              placeholderTextColor="#999"
               value={finishNote}
               onChangeText={setFinishNote}
               multiline
             />
+
+            {workout.exercises.length > 0 && (
+              <View style={styles.templateSection}>
+                <View style={styles.templateToggle}>
+                  <Text style={styles.templateToggleText}>Save as Template</Text>
+                  <Switch
+                    value={saveAsTemplate}
+                    onValueChange={setSaveAsTemplate}
+                    trackColor={{ false: '#e0e0e0', true: '#e94560' }}
+                    thumbColor="#fff"
+                  />
+                </View>
+                
+                {saveAsTemplate && (
+                  <TextInput
+                    style={styles.customInput}
+                    placeholder="Template name (e.g., Push Day)"
+                    placeholderTextColor="#999"
+                    value={templateName}
+                    onChangeText={setTemplateName}
+                  />
+                )}
+              </View>
+            )}
 
             <Pressable style={styles.finishButton} onPress={handleFinish}>
               <Text style={styles.finishButtonText}>Save Workout</Text>
@@ -274,15 +331,17 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   loadingText: {
-    color: '#fff',
+    color: '#666',
     textAlign: 'center',
     marginTop: 50,
   },
   exerciseCard: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     padding: 15,
     marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   exerciseHeader: {
     flexDirection: 'row',
@@ -291,7 +350,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   exerciseName: {
-    color: '#fff',
+    color: '#1a1a1a',
     fontSize: 18,
     fontWeight: '600',
   },
@@ -322,18 +381,21 @@ const styles = StyleSheet.create({
     color: '#888',
     width: 60,
     textAlign: 'center',
+    fontWeight: '500',
   },
   input: {
-    backgroundColor: '#16213e',
-    color: '#fff',
+    backgroundColor: '#f5f5f5',
+    color: '#1a1a1a',
     width: 60,
     padding: 10,
-    borderRadius: 6,
+    borderRadius: 8,
     textAlign: 'center',
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   deleteSetText: {
-    color: '#888',
+    color: '#ccc',
     fontSize: 20,
     paddingHorizontal: 10,
   },
@@ -347,11 +409,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   addExerciseButton: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#fff',
     padding: 20,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     marginBottom: 100,
+    borderWidth: 2,
+    borderColor: '#e94560',
+    borderStyle: 'dashed',
   },
   addExerciseText: {
     color: '#e94560',
@@ -362,9 +427,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 15,
     gap: 10,
-    backgroundColor: '#16213e',
+    backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#1a1a2e',
+    borderTopColor: '#e0e0e0',
   },
   cancelButton: {
     flex: 1,
@@ -372,10 +437,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#888',
+    borderColor: '#ccc',
   },
   cancelButtonText: {
-    color: '#888',
+    color: '#666',
     fontWeight: '600',
   },
   finishButton: {
@@ -391,29 +456,31 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
     maxHeight: '80%',
   },
   modalTitle: {
-    color: '#fff',
+    color: '#1a1a1a',
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 15,
     textAlign: 'center',
   },
   customInput: {
-    backgroundColor: '#16213e',
-    color: '#fff',
+    backgroundColor: '#f5f5f5',
+    color: '#1a1a1a',
     padding: 15,
     borderRadius: 8,
     marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   noteInput: {
     height: 100,
@@ -425,10 +492,23 @@ const styles = StyleSheet.create({
   exerciseOption: {
     padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#16213e',
+    borderBottomColor: '#f0f0f0',
   },
   exerciseOptionText: {
-    color: '#fff',
+    color: '#1a1a1a',
+    fontSize: 16,
+  },
+  templateSection: {
+    marginBottom: 15,
+  },
+  templateToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  templateToggleText: {
+    color: '#1a1a1a',
     fontSize: 16,
   },
   closeModal: {

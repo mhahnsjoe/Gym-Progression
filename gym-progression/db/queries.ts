@@ -1,7 +1,19 @@
 import * as SQLite from 'expo-sqlite';
-import { Workout, Exercise, Set, WorkoutWithExercises, ExerciseWithSets } from './schema';
+import { 
+  Workout, 
+  Exercise, 
+  Set, 
+  WorkoutWithExercises, 
+  ExerciseWithSets,
+  Template,
+  TemplateExercise,
+  TemplateWithExercises
+} from './schema';
 
+// ============================================
 // Workout operations
+// ============================================
+
 export async function createWorkout(db: SQLite.SQLiteDatabase): Promise<number> {
   const result = await db.runAsync(
     'INSERT INTO workouts (started_at) VALUES (?)',
@@ -56,7 +68,10 @@ export async function getWorkoutWithExercises(db: SQLite.SQLiteDatabase, workout
   return { ...workout, exercises: exercisesWithSets };
 }
 
+// ============================================
 // Exercise operations
+// ============================================
+
 export async function addExercise(db: SQLite.SQLiteDatabase, workoutId: number, name: string): Promise<number> {
   const countResult = await db.getFirstAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM exercises WHERE workout_id = ?',
@@ -77,7 +92,10 @@ export async function deleteExercise(db: SQLite.SQLiteDatabase, exerciseId: numb
   await db.runAsync('DELETE FROM exercises WHERE id = ?', exerciseId);
 }
 
+// ============================================
 // Set operations
+// ============================================
+
 export async function addSet(db: SQLite.SQLiteDatabase, exerciseId: number, weight: number, reps: number): Promise<number> {
   const countResult = await db.getFirstAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM sets WHERE exercise_id = ?',
@@ -106,4 +124,128 @@ export async function updateSet(db: SQLite.SQLiteDatabase, setId: number, weight
 
 export async function deleteSet(db: SQLite.SQLiteDatabase, setId: number): Promise<void> {
   await db.runAsync('DELETE FROM sets WHERE id = ?', setId);
+}
+
+// ============================================
+// Template operations
+// ============================================
+
+export async function createTemplate(db: SQLite.SQLiteDatabase, name: string): Promise<number> {
+  const result = await db.runAsync(
+    'INSERT INTO templates (name, created_at) VALUES (?, ?)',
+    name,
+    new Date().toISOString()
+  );
+  return result.lastInsertRowId;
+}
+
+export async function deleteTemplate(db: SQLite.SQLiteDatabase, templateId: number): Promise<void> {
+  await db.runAsync('DELETE FROM templates WHERE id = ?', templateId);
+}
+
+export async function getAllTemplates(db: SQLite.SQLiteDatabase): Promise<Template[]> {
+  return await db.getAllAsync<Template>(
+    'SELECT * FROM templates ORDER BY created_at DESC'
+  );
+}
+
+export async function getTemplateWithExercises(db: SQLite.SQLiteDatabase, templateId: number): Promise<TemplateWithExercises | null> {
+  const template = await db.getFirstAsync<Template>(
+    'SELECT * FROM templates WHERE id = ?',
+    templateId
+  );
+  
+  if (!template) return null;
+
+  const exercises = await db.getAllAsync<TemplateExercise>(
+    'SELECT * FROM template_exercises WHERE template_id = ? ORDER BY order_index',
+    templateId
+  );
+
+  return { ...template, exercises };
+}
+
+export async function addTemplateExercise(
+  db: SQLite.SQLiteDatabase, 
+  templateId: number, 
+  name: string, 
+  defaultSets: number = 3
+): Promise<number> {
+  const countResult = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM template_exercises WHERE template_id = ?',
+    templateId
+  );
+  const orderIndex = countResult?.count || 0;
+
+  const result = await db.runAsync(
+    'INSERT INTO template_exercises (template_id, name, order_index, default_sets) VALUES (?, ?, ?, ?)',
+    templateId,
+    name,
+    orderIndex,
+    defaultSets
+  );
+  return result.lastInsertRowId;
+}
+
+export async function deleteTemplateExercise(db: SQLite.SQLiteDatabase, exerciseId: number): Promise<void> {
+  await db.runAsync('DELETE FROM template_exercises WHERE id = ?', exerciseId);
+}
+
+// ============================================
+// Template → Workout conversion
+// ============================================
+
+/**
+ * Creates a new workout from a template, pre-populating exercises and empty sets
+ */
+export async function createWorkoutFromTemplate(
+  db: SQLite.SQLiteDatabase, 
+  templateId: number
+): Promise<number> {
+  // Create the workout
+  const workoutId = await createWorkout(db);
+  
+  // Get template exercises
+  const template = await getTemplateWithExercises(db, templateId);
+  if (!template) return workoutId;
+
+  // Add each exercise with empty sets
+  for (const templateExercise of template.exercises) {
+    const exerciseId = await addExercise(db, workoutId, templateExercise.name);
+    
+    // Add default number of empty sets
+    for (let i = 0; i < templateExercise.default_sets; i++) {
+      await addSet(db, exerciseId, 0, 0);
+    }
+  }
+
+  return workoutId;
+}
+
+/**
+ * Saves an existing workout as a template
+ */
+export async function saveWorkoutAsTemplate(
+  db: SQLite.SQLiteDatabase,
+  workoutId: number,
+  templateName: string
+): Promise<number> {
+  // Get the workout with exercises
+  const workout = await getWorkoutWithExercises(db, workoutId);
+  if (!workout) throw new Error('Workout not found');
+
+  // Create the template
+  const templateId = await createTemplate(db, templateName);
+
+  // Add each exercise to the template
+  for (const exercise of workout.exercises) {
+    await addTemplateExercise(
+      db, 
+      templateId, 
+      exercise.name, 
+      exercise.sets.length || 3  // Use actual set count or default to 3
+    );
+  }
+
+  return templateId;
 }
