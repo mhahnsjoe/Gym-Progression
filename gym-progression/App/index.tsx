@@ -1,10 +1,20 @@
-import { View, Text, StyleSheet, Pressable, FlatList, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, FlatList, Modal, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useDatabase } from '../db/DatabaseContext';
-import { createWorkout, getRecentWorkouts, getAllTemplates, createWorkoutFromTemplate, getInProgressWorkout } from '../db/queries';
+import {
+  createWorkout,
+  getRecentWorkouts,
+  getAllTemplates,
+  createWorkoutFromTemplate,
+  getInProgressWorkout,
+  isWorkoutEmpty,
+  deleteWorkout,
+  finishWorkout
+} from '../db/queries';
 import { Workout, Template } from '../db/schema';
+import WorkoutConflictModal from '../components/WorkoutConflictModal';
 
 // Theme colors matching workout screen
 const colors = {
@@ -24,6 +34,8 @@ export default function HomeScreen() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [inProgressWorkout, setInProgressWorkout] = useState<Workout | null>(null);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ type: 'empty' | 'template'; templateId?: number } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -57,22 +69,93 @@ export default function HomeScreen() {
   );
 
   const handleStartWorkout = async () => {
-    const workoutId = await createWorkout(db);
-    router.push(`/workout/${workoutId}`);
+    const active = await getInProgressWorkout(db);
+    if (!active) {
+      const workoutId = await createWorkout(db);
+      router.push(`/workout/${workoutId}`);
+      return;
+    }
+
+    const isEmpty = await isWorkoutEmpty(db, active.id);
+    if (isEmpty) {
+      await deleteWorkout(db, active.id);
+      const workoutId = await createWorkout(db);
+      router.push(`/workout/${workoutId}`);
+      return;
+    }
+
+    setPendingAction({ type: 'empty' });
+    setShowConflictModal(true);
   };
 
   const handleStartFromTemplate = async (templateId: number) => {
-    const workoutId = await createWorkoutFromTemplate(db, templateId);
-    setShowTemplateModal(false);
-    router.push(`/workout/${workoutId}`);
+    const active = await getInProgressWorkout(db);
+    if (!active) {
+      const workoutId = await createWorkoutFromTemplate(db, templateId);
+      setShowTemplateModal(false);
+      router.push(`/workout/${workoutId}`);
+      return;
+    }
+
+    const isEmpty = await isWorkoutEmpty(db, active.id);
+    if (isEmpty) {
+      await deleteWorkout(db, active.id);
+      const workoutId = await createWorkoutFromTemplate(db, templateId);
+      setShowTemplateModal(false);
+      router.push(`/workout/${workoutId}`);
+      return;
+    }
+
+    setPendingAction({ type: 'template', templateId });
+    setShowConflictModal(true);
+  };
+
+  const executePendingAction = async () => {
+    if (!pendingAction) return;
+
+    if (pendingAction.type === 'empty') {
+      const workoutId = await createWorkout(db);
+      router.push(`/workout/${workoutId}`);
+    } else if (pendingAction.type === 'template' && pendingAction.templateId) {
+      const workoutId = await createWorkoutFromTemplate(db, pendingAction.templateId);
+      setShowTemplateModal(false);
+      router.push(`/workout/${workoutId}`);
+    }
+    setPendingAction(null);
+  };
+
+  const handleConflictFinish = async () => {
+    const active = await getInProgressWorkout(db);
+    if (active) {
+      await finishWorkout(db, active.id, 'Finished to start new session');
+      setShowConflictModal(false);
+      await executePendingAction();
+    }
+  };
+
+  const handleConflictDelete = async () => {
+    const active = await getInProgressWorkout(db);
+    if (active) {
+      await deleteWorkout(db, active.id);
+      setShowConflictModal(false);
+      await executePendingAction();
+    }
+  };
+
+  const handleConflictContinue = async () => {
+    const active = await getInProgressWorkout(db);
+    if (active) {
+      setShowConflictModal(false);
+      router.push(`/workout/${active.id}`);
+    }
   };
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
     });
   };
 
@@ -174,7 +257,7 @@ export default function HomeScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Choose Template</Text>
-            
+
             <FlatList
               data={templates}
               keyExtractor={(item) => item.id.toString()}
@@ -198,6 +281,18 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Conflict Modal */}
+      <WorkoutConflictModal
+        visible={showConflictModal}
+        onCancel={() => {
+          setShowConflictModal(false);
+          setPendingAction(null);
+        }}
+        onContinue={handleConflictContinue}
+        onFinishAndStartNew={handleConflictFinish}
+        onDeleteAndStartNew={handleConflictDelete}
+      />
 
       {/* Fixed Bottom Continue Workout Banner */}
       {inProgressWorkout && (

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import ConfirmationModal from '../../components/ConfirmationModal';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useDatabase } from '../../db/DatabaseContext';
 import { getWorkoutWithExercises, deleteWorkout } from '../../db/queries';
@@ -10,6 +11,7 @@ export default function WorkoutDetailScreen() {
   const router = useRouter();
   const db = useDatabase();
   const [workout, setWorkout] = useState<WorkoutWithExercises | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -17,22 +19,14 @@ export default function WorkoutDetailScreen() {
   }, [db, id]);
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Workout',
-      'Are you sure you want to delete this workout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (!id) return;
-            await deleteWorkout(db, parseInt(id));
-            router.back();
-          },
-        },
-      ]
-    );
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!id) return;
+    await deleteWorkout(db, parseInt(id));
+    setShowDeleteModal(false);
+    router.back();
   };
 
   const formatDate = (dateStr: string) => {
@@ -95,6 +89,16 @@ export default function WorkoutDetailScreen() {
           <Text style={styles.deleteButtonText}>Delete Workout</Text>
         </Pressable>
       </View>
+
+      <ConfirmationModal
+        visible={showDeleteModal}
+        title="Delete Workout"
+        description="Are you sure you want to delete this workout?"
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteModal(false)}
+        isDanger
+      />
     </View>
   );
 }

@@ -26,6 +26,7 @@ import {
 } from '../../db/queries';
 import { WorkoutWithExercises, ExerciseWithSets } from '../../db/schema';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 // Theme colors matching your HTML design
 const colors = {
@@ -67,6 +68,11 @@ export default function WorkoutScreen() {
   const [templateName, setTemplateName] = useState('');
   const [expandedExercises, setExpandedExercises] = useState<Set<number>>(new Set());
   const [activeExerciseId, setActiveExerciseId] = useState<number | null>(null);
+
+  // New states for custom modals
+  const [showDeleteExerciseModal, setShowDeleteExerciseModal] = useState(false);
+  const [exerciseToDelete, setExerciseToDelete] = useState<{ id: number, name: string } | null>(null);
+  const [showCancelWorkoutModal, setShowCancelWorkoutModal] = useState(false);
 
   const loadWorkout = useCallback(async () => {
     if (!id) return;
@@ -143,24 +149,19 @@ export default function WorkoutScreen() {
   };
 
   const handleDeleteExercise = (exerciseId: number, exerciseName: string) => {
-    Alert.alert(
-      'Delete Exercise',
-      `Remove ${exerciseName} and all its sets?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteExercise(db, exerciseId);
-            if (activeExerciseId === exerciseId) {
-              setActiveExerciseId(null);
-            }
-            loadWorkout();
-          },
-        },
-      ]
-    );
+    setExerciseToDelete({ id: exerciseId, name: exerciseName });
+    setShowDeleteExerciseModal(true);
+  };
+
+  const confirmDeleteExercise = async () => {
+    if (!exerciseToDelete) return;
+    await deleteExercise(db, exerciseToDelete.id);
+    if (activeExerciseId === exerciseToDelete.id) {
+      setActiveExerciseId(null);
+    }
+    setShowDeleteExerciseModal(false);
+    setExerciseToDelete(null);
+    loadWorkout();
   };
 
   const handleFinish = async () => {
@@ -177,22 +178,14 @@ export default function WorkoutScreen() {
   };
 
   const handleCancel = () => {
-    Alert.alert(
-      'Cancel Workout',
-      'This will delete the entire workout. Are you sure?',
-      [
-        { text: 'Keep Working', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (!id) return;
-            await deleteWorkout(db, parseInt(id));
-            router.replace('/');
-          },
-        },
-      ]
-    );
+    setShowCancelWorkoutModal(true);
+  };
+
+  const confirmCancelWorkout = async () => {
+    if (!id) return;
+    await deleteWorkout(db, parseInt(id));
+    setShowCancelWorkoutModal(false);
+    router.replace('/');
   };
 
   const openFinishModal = () => {
@@ -449,6 +442,28 @@ export default function WorkoutScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Confirmation Modals */}
+      <ConfirmationModal
+        visible={showDeleteExerciseModal}
+        title="Delete Exercise"
+        description={`Remove ${exerciseToDelete?.name} and all its sets?`}
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteExercise}
+        onCancel={() => setShowDeleteExerciseModal(false)}
+        isDanger
+      />
+
+      <ConfirmationModal
+        visible={showCancelWorkoutModal}
+        title="Cancel Workout"
+        description="This will delete the entire workout. Are you sure?"
+        confirmLabel="Discard Workout"
+        cancelLabel="Keep Working"
+        onConfirm={confirmCancelWorkout}
+        onCancel={() => setShowCancelWorkoutModal(false)}
+        isDanger
+      />
     </View>
   );
 }

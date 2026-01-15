@@ -1,9 +1,9 @@
 import * as SQLite from 'expo-sqlite';
-import { 
-  Workout, 
-  Exercise, 
-  Set, 
-  WorkoutWithExercises, 
+import {
+  Workout,
+  Exercise,
+  Set,
+  WorkoutWithExercises,
   ExerciseWithSets,
   Template,
   TemplateExercise,
@@ -53,7 +53,7 @@ export async function getWorkoutWithExercises(db: SQLite.SQLiteDatabase, workout
     'SELECT * FROM workouts WHERE id = ?',
     workoutId
   );
-  
+
   if (!workout) return null;
 
   const exercises = await db.getAllAsync<Exercise>(
@@ -72,6 +72,19 @@ export async function getWorkoutWithExercises(db: SQLite.SQLiteDatabase, workout
   );
 
   return { ...workout, exercises: exercisesWithSets };
+}
+
+export async function isWorkoutEmpty(db: SQLite.SQLiteDatabase, workoutId: number): Promise<boolean> {
+  const workout = await getWorkoutWithExercises(db, workoutId);
+  if (!workout) return true;
+
+  // If there's a workout note, it's not empty
+  if (workout.note && workout.note.trim()) return false;
+
+  // Strict check: if any exercises have been added, it's not empty anymore
+  if (workout.exercises.length > 0) return false;
+
+  return true;
 }
 
 // ============================================
@@ -169,7 +182,7 @@ export async function getTemplateWithExercises(db: SQLite.SQLiteDatabase, templa
     'SELECT * FROM templates WHERE id = ?',
     templateId
   );
-  
+
   if (!template) return null;
 
   const exercises = await db.getAllAsync<TemplateExercise>(
