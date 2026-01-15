@@ -17,13 +17,27 @@ import {
   addExercise,
   addSet,
   updateSet,
+  updateExerciseNote,
   deleteSet,
   deleteExercise,
   finishWorkout,
   deleteWorkout,
   saveWorkoutAsTemplate,
 } from '../../db/queries';
-import { WorkoutWithExercises } from '../../db/schema';
+import { WorkoutWithExercises, ExerciseWithSets } from '../../db/schema';
+import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
+
+// Theme colors matching your HTML design
+const colors = {
+  primary: '#00c795',
+  background: '#1a1a1a',
+  card: '#2C2C2C',
+  inputBg: '#17362e',
+  text: '#ffffff',
+  textMuted: '#888888',
+  border: 'rgba(255,255,255,0.05)',
+  borderActive: 'rgba(0,199,149,0.5)',
+};
 
 const COMMON_EXERCISES = [
   'Bench Press',
@@ -51,6 +65,8 @@ export default function WorkoutScreen() {
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [expandedExercises, setExpandedExercises] = useState<Set<number>>(new Set());
+  const [activeExerciseId, setActiveExerciseId] = useState<number | null>(null);
 
   const loadWorkout = useCallback(async () => {
     if (!id) return;
@@ -71,18 +87,57 @@ export default function WorkoutScreen() {
   };
 
   const handleAddSet = async (exerciseId: number) => {
+    setActiveExerciseId(exerciseId);
     await addSet(db, exerciseId, 0, 0);
     loadWorkout();
   };
 
-  const handleUpdateSet = async (setId: number, weight: string, reps: string) => {
+  const handleUpdateSet = async (setId: number, weight: string, reps: string, exerciseId: number) => {
+    setActiveExerciseId(exerciseId);
     const w = parseFloat(weight) || 0;
     const r = parseInt(reps) || 0;
     await updateSet(db, setId, w, r);
     loadWorkout();
   };
 
-  const handleDeleteSet = async (setId: number) => {
+  const handleUpdateExerciseNote = async (exerciseId: number, note: string) => {
+    setActiveExerciseId(exerciseId);
+    await updateExerciseNote(db, exerciseId, note);
+    loadWorkout();
+  };
+
+  const handleCopyPreviousSet = async (exerciseId: number, index: number, sets: any[]) => {
+    if (index === 0) return;
+    setActiveExerciseId(exerciseId);
+    const previousSet = sets[index - 1];
+    const currentSet = sets[index];
+    await updateSet(db, currentSet.id, previousSet.weight, previousSet.reps);
+    loadWorkout();
+  };
+
+  const toggleExercise = (exerciseId: number) => {
+    setActiveExerciseId(exerciseId);
+    setExpandedExercises(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(exerciseId)) {
+        newSet.delete(exerciseId);
+      } else {
+        newSet.add(exerciseId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleReorder = async (newExercises: ExerciseWithSets[]) => {
+    if (!workout) return;
+    setWorkout({ ...workout, exercises: newExercises });
+    for (let i = 0; i < newExercises.length; i++) {
+      await db.runAsync('UPDATE exercises SET order_index = ? WHERE id = ?', i, newExercises[i].id);
+    }
+  };
+
+  const handleDeleteSet = async (setId: number, exerciseId: number) => {
+    setActiveExerciseId(exerciseId);
     await deleteSet(db, setId);
     loadWorkout();
   };
@@ -98,6 +153,9 @@ export default function WorkoutScreen() {
           style: 'destructive',
           onPress: async () => {
             await deleteExercise(db, exerciseId);
+            if (activeExerciseId === exerciseId) {
+              setActiveExerciseId(null);
+            }
             loadWorkout();
           },
         },
@@ -107,7 +165,6 @@ export default function WorkoutScreen() {
 
   const handleFinish = async () => {
     if (!id) return;
-    
     if (saveAsTemplate && templateName.trim()) {
       try {
         await saveWorkoutAsTemplate(db, parseInt(id), templateName.trim());
@@ -115,7 +172,6 @@ export default function WorkoutScreen() {
         console.error('Failed to save template:', error);
       }
     }
-    
     await finishWorkout(db, parseInt(id), finishNote);
     router.replace('/');
   };
@@ -142,15 +198,15 @@ export default function WorkoutScreen() {
   const openFinishModal = () => {
     if (workout?.exercises.length) {
       const firstExercise = workout.exercises[0].name;
-      if (firstExercise.toLowerCase().includes('bench') || 
-          firstExercise.toLowerCase().includes('press')) {
+      if (firstExercise.toLowerCase().includes('bench') ||
+        firstExercise.toLowerCase().includes('press')) {
         setTemplateName('Push Day');
       } else if (firstExercise.toLowerCase().includes('squat') ||
-                 firstExercise.toLowerCase().includes('leg')) {
+        firstExercise.toLowerCase().includes('leg')) {
         setTemplateName('Leg Day');
       } else if (firstExercise.toLowerCase().includes('pull') ||
-                 firstExercise.toLowerCase().includes('row') ||
-                 firstExercise.toLowerCase().includes('deadlift')) {
+        firstExercise.toLowerCase().includes('row') ||
+        firstExercise.toLowerCase().includes('deadlift')) {
         setTemplateName('Pull Day');
       } else {
         setTemplateName('');
@@ -167,72 +223,147 @@ export default function WorkoutScreen() {
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {workout.exercises.map((exercise) => (
-          <View key={exercise.id} style={styles.exerciseCard}>
-            <View style={styles.exerciseHeader}>
-              <Text style={styles.exerciseName}>{exercise.name}</Text>
-              <Pressable onPress={() => handleDeleteExercise(exercise.id, exercise.name)}>
+  const renderExercise = ({ item: exercise, drag, isActive: isDragging }: RenderItemParams<ExerciseWithSets>) => {
+    const isExpanded = expandedExercises.has(exercise.id);
+    const isActive = activeExerciseId === exercise.id;
+    const completedSets = exercise.sets.filter(s => s.weight > 0 || s.reps > 0).length;
+
+    return (
+      <ScaleDecorator>
+        <View style={[
+          styles.exerciseCard,
+          isActive && styles.exerciseCardActive,
+          isDragging && styles.exerciseCardDragging
+        ]}>
+          <Pressable
+            style={styles.exerciseHeader}
+            onPress={() => toggleExercise(exercise.id)}
+            onLongPress={drag}
+          >
+            <View style={styles.exerciseHeaderLeft}>
+              {isActive && <View style={styles.activeIndicator} />}
+              <View style={styles.exerciseTitleContainer}>
+                <Text style={styles.exerciseName}>{exercise.name}</Text>
+                <Text style={styles.exerciseSubtitle}>
+                  {completedSets}/{exercise.sets.length} sets completed
+                </Text>
+              </View>
+            </View>
+            <View style={styles.exerciseHeaderRight}>
+              <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => handleDeleteExercise(exercise.id, exercise.name)}
+              >
                 <Text style={styles.deleteText}>×</Text>
               </Pressable>
             </View>
+          </Pressable>
 
-            <View style={styles.setsHeader}>
-              <Text style={styles.setLabel}>Set</Text>
-              <Text style={styles.setLabel}>Weight</Text>
-              <Text style={styles.setLabel}>Reps</Text>
-              <Text style={styles.setLabel}></Text>
-            </View>
-
-            {exercise.sets.map((set, index) => (
-              <View key={set.id} style={styles.setRow}>
-                <Text style={styles.setNumber}>{index + 1}</Text>
-                <TextInput
-                  style={styles.input}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor="#999"
-                  defaultValue={set.weight > 0 ? set.weight.toString() : ''}
-                  onEndEditing={(e) =>
-                    handleUpdateSet(set.id, e.nativeEvent.text, set.reps.toString())
-                  }
-                />
-                <TextInput
-                  style={styles.input}
-                  keyboardType="number-pad"
-                  placeholder="0"
-                  placeholderTextColor="#999"
-                  defaultValue={set.reps > 0 ? set.reps.toString() : ''}
-                  onEndEditing={(e) =>
-                    handleUpdateSet(set.id, set.weight.toString(), e.nativeEvent.text)
-                  }
-                />
-                <Pressable onPress={() => handleDeleteSet(set.id)}>
-                  <Text style={styles.deleteSetText}>×</Text>
-                </Pressable>
+          {isExpanded && (
+            <View style={styles.exerciseContent}>
+              {/* Header row */}
+              <View style={styles.setsHeader}>
+                <Text style={[styles.setLabel, styles.setLabelNum]}>#</Text>
+                <Text style={[styles.setLabel, styles.setLabelWeight]}>Weight (kg)</Text>
+                <Text style={[styles.setLabel, styles.setLabelReps]}>Reps</Text>
+                <Text style={[styles.setLabel, styles.setLabelCopy]}>Copy</Text>
               </View>
-            ))}
 
-            <Pressable style={styles.addSetButton} onPress={() => handleAddSet(exercise.id)}>
-              <Text style={styles.addSetText}>+ Add Set</Text>
-            </Pressable>
-          </View>
-        ))}
+              {exercise.sets.map((set, index) => (
+                <View key={set.id} style={styles.setRow}>
+                  <Text style={[styles.setNumber, (set.weight > 0 || set.reps > 0) && styles.setNumberCompleted]}>
+                    {index + 1}
+                  </Text>
+                  <TextInput
+                    style={[styles.input, (set.weight > 0 || set.reps > 0) && styles.inputCompleted]}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    placeholderTextColor="#555"
+                    defaultValue={set.weight > 0 ? set.weight.toString() : ''}
+                    onFocus={() => setActiveExerciseId(exercise.id)}
+                    onEndEditing={(e) =>
+                      handleUpdateSet(set.id, e.nativeEvent.text, set.reps.toString(), exercise.id)
+                    }
+                  />
+                  <TextInput
+                    style={[styles.input, (set.weight > 0 || set.reps > 0) && styles.inputCompleted]}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#555"
+                    defaultValue={set.reps > 0 ? set.reps.toString() : ''}
+                    onFocus={() => setActiveExerciseId(exercise.id)}
+                    onEndEditing={(e) =>
+                      handleUpdateSet(set.id, set.weight.toString(), e.nativeEvent.text, exercise.id)
+                    }
+                  />
+                  <View style={styles.copyContainer}>
+                    {index > 0 ? (
+                      <Pressable
+                        style={styles.copyButton}
+                        onPress={() => handleCopyPreviousSet(exercise.id, index, exercise.sets)}
+                      >
+                        <Text style={styles.copyIcon}>⧉</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        style={styles.deleteSetButton}
+                        onPress={() => handleDeleteSet(set.id, exercise.id)}
+                      >
+                        <Text style={styles.deleteSetText}>×</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              ))}
 
-        <Pressable style={styles.addExerciseButton} onPress={() => setShowExerciseModal(true)}>
-          <Text style={styles.addExerciseText}>+ Add Exercise</Text>
-        </Pressable>
-      </ScrollView>
+              <TextInput
+                style={styles.exerciseNoteInput}
+                placeholder="Add note..."
+                placeholderTextColor="#555"
+                defaultValue={exercise.note || ''}
+                onFocus={() => setActiveExerciseId(exercise.id)}
+                onEndEditing={(e) =>
+                  handleUpdateExerciseNote(exercise.id, e.nativeEvent.text)
+                }
+                multiline
+              />
 
-      <View style={styles.bottomButtons}>
-        <Pressable style={styles.cancelButton} onPress={handleCancel}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </Pressable>
-        <Pressable style={styles.finishButton} onPress={openFinishModal}>
-          <Text style={styles.finishButtonText}>Finish Workout</Text>
-        </Pressable>
+              <Pressable style={styles.addSetButton} onPress={() => handleAddSet(exercise.id)}>
+                <Text style={styles.addSetText}>+ ADD SET</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </ScaleDecorator>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <DraggableFlatList
+        data={workout.exercises}
+        keyExtractor={(item) => item.id.toString()}
+        onDragEnd={({ data }) => handleReorder(data)}
+        renderItem={renderExercise}
+        contentContainerStyle={styles.flatListContent}
+        ListFooterComponent={
+          <Pressable style={styles.addExerciseButton} onPress={() => setShowExerciseModal(true)}>
+            <Text style={styles.addExerciseText}>+ ADD EXERCISE</Text>
+          </Pressable>
+        }
+      />
+
+      {/* Fixed bottom buttons */}
+      <View style={styles.bottomButtonsContainer}>
+        <View style={styles.bottomButtons}>
+          <Pressable style={styles.cancelButton} onPress={handleCancel}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </Pressable>
+          <Pressable style={styles.finishButton} onPress={openFinishModal}>
+            <Text style={styles.finishButtonText}>FINISH WORKOUT</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Exercise Selection Modal */}
@@ -240,16 +371,16 @@ export default function WorkoutScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Exercise</Text>
-            
+
             <TextInput
               style={styles.customInput}
               placeholder="Custom exercise name..."
-              placeholderTextColor="#999"
+              placeholderTextColor="#666"
               value={customExercise}
               onChangeText={setCustomExercise}
               onSubmitEditing={() => handleAddExercise(customExercise)}
             />
-            
+
             <ScrollView style={styles.exerciseList}>
               {COMMON_EXERCISES.map((name) => (
                 <Pressable
@@ -274,11 +405,11 @@ export default function WorkoutScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Finish Workout</Text>
-            
+
             <TextInput
               style={[styles.customInput, styles.noteInput]}
               placeholder="How did it go? (optional)"
-              placeholderTextColor="#999"
+              placeholderTextColor="#666"
               value={finishNote}
               onChangeText={setFinishNote}
               multiline
@@ -291,16 +422,16 @@ export default function WorkoutScreen() {
                   <Switch
                     value={saveAsTemplate}
                     onValueChange={setSaveAsTemplate}
-                    trackColor={{ false: '#e0e0e0', true: '#e94560' }}
+                    trackColor={{ false: colors.card, true: colors.primary }}
                     thumbColor="#fff"
                   />
                 </View>
-                
+
                 {saveAsTemplate && (
                   <TextInput
                     style={styles.customInput}
                     placeholder="Template name (e.g., Push Day)"
-                    placeholderTextColor="#999"
+                    placeholderTextColor="#666"
                     value={templateName}
                     onChangeText={setTemplateName}
                   />
@@ -308,7 +439,7 @@ export default function WorkoutScreen() {
               </View>
             )}
 
-            <Pressable style={styles.finishButton} onPress={handleFinish}>
+            <Pressable style={styles.finishButtonModal} onPress={handleFinish}>
               <Text style={styles.finishButtonText}>Save Workout</Text>
             </Pressable>
 
@@ -325,51 +456,118 @@ export default function WorkoutScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.background,
   },
-  scrollView: {
-    flex: 1,
-    padding: 15,
+  flatListContent: {
+    padding: 16,
+    paddingBottom: 140,
   },
   loadingText: {
-    color: '#666',
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: 50,
   },
   exerciseCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  exerciseCardActive: {
+    borderWidth: 2,
+    borderColor: colors.borderActive,
+  },
+  exerciseCardDragging: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    elevation: 8,
+  },
+  activeIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+    marginRight: 12,
   },
   exerciseHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    padding: 16,
+  },
+  exerciseHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  exerciseTitleContainer: {
+    flex: 1,
+  },
+  exerciseHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   exerciseName: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  exerciseSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  exerciseContent: {
+    padding: 16,
+    paddingTop: 0,
+  },
+  expandIcon: {
+    color: colors.primary,
+    fontSize: 12,
+  },
+  deleteButton: {
+    padding: 4,
   },
   deleteText: {
-    color: '#e94560',
+    color: colors.textMuted,
     fontSize: 24,
-    fontWeight: 'bold',
-    paddingHorizontal: 5,
+    fontWeight: '300',
   },
   setsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 5,
-    paddingHorizontal: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 8,
+    marginBottom: 12,
   },
   setLabel: {
-    color: '#888',
-    fontSize: 12,
-    width: 60,
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  setLabelNum: {
+    width: 32,
+    textAlign: 'center',
+  },
+  setLabelWeight: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  setLabelReps: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  setLabelCopy: {
+    width: 50,
     textAlign: 'center',
   },
   setRow: {
@@ -378,109 +576,187 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   setNumber: {
-    color: '#888',
-    width: 60,
+    color: colors.textMuted,
+    width: 32,
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  setNumberCompleted: {
+    color: colors.primary,
   },
   input: {
-    backgroundColor: '#f5f5f5',
-    color: '#1a1a1a',
-    width: 60,
-    padding: 10,
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    color: colors.text,
+    height: 48,
     borderRadius: 8,
     textAlign: 'center',
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    marginHorizontal: 4,
+    fontSize: 16,
+    fontWeight: '600',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  deleteSetText: {
-    color: '#ccc',
-    fontSize: 20,
-    paddingHorizontal: 10,
+  inputCompleted: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderColor: 'rgba(0,199,149,0.3)',
   },
-  addSetButton: {
-    marginTop: 10,
-    padding: 10,
+  copyContainer: {
+    width: 50,
     alignItems: 'center',
   },
+  copyButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,199,149,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  copyIcon: {
+    color: colors.primary,
+    fontSize: 20,
+  },
+  deleteSetButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteSetText: {
+    color: colors.textMuted,
+    fontSize: 20,
+  },
+  exerciseNoteInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    color: colors.text,
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    fontSize: 13,
+    minHeight: 44,
+  },
+  addSetButton: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+  },
   addSetText: {
-    color: '#e94560',
-    fontWeight: '500',
+    color: colors.textMuted,
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 1,
   },
   addExerciseButton: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     padding: 20,
     borderRadius: 12,
     alignItems: 'center',
-    marginBottom: 100,
+    marginBottom: 20,
     borderWidth: 2,
-    borderColor: '#e94560',
+    borderColor: colors.primary,
     borderStyle: 'dashed',
   },
   addExerciseText: {
-    color: '#e94560',
-    fontSize: 16,
-    fontWeight: '600',
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  bottomButtonsContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.background,
+    paddingTop: 8,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   bottomButtons: {
     flexDirection: 'row',
-    padding: 15,
-    gap: 10,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    gap: 12,
   },
   cancelButton: {
     flex: 1,
-    padding: 15,
-    borderRadius: 8,
+    padding: 16,
+    borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   cancelButtonText: {
-    color: '#666',
-    fontWeight: '600',
+    color: colors.textMuted,
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   finishButton: {
     flex: 2,
-    backgroundColor: '#e94560',
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: colors.primary,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  finishButtonModal: {
+    backgroundColor: colors.primary,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   finishButtonText: {
     color: '#fff',
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
     maxHeight: '80%',
   },
   modalTitle: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    fontWeight: '700',
+    marginBottom: 20,
     textAlign: 'center',
   },
   customInput: {
-    backgroundColor: '#f5f5f5',
-    color: '#1a1a1a',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    backgroundColor: colors.inputBg,
+    color: colors.text,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    fontSize: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(0,199,149,0.3)',
   },
   noteInput: {
     height: 100,
@@ -490,34 +766,35 @@ const styles = StyleSheet.create({
     maxHeight: 300,
   },
   exerciseOption: {
-    padding: 15,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: colors.border,
   },
   exerciseOptionText: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 16,
   },
   templateSection: {
-    marginBottom: 15,
+    marginBottom: 16,
   },
   templateToggle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   templateToggleText: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 16,
   },
   closeModal: {
-    padding: 15,
+    padding: 16,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   closeModalText: {
-    color: '#888',
-    fontSize: 16,
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

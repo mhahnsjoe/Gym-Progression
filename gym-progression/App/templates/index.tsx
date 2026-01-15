@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   createButtonLarge: {
-    backgroundColor: '#e94560',
+    backgroundColor: '#2196F3',
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 10,
@@ -185,10 +185,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#e94560',
+    borderColor: '#2196F3',
   },
   createButtonText: {
-    color: '#e94560',
+    color: '#2196F3',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   exercisePreviewMore: {
-    color: '#e94560',
+    color: '#2196F3',
     fontSize: 13,
   },
   templateActions: {
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 14,
     alignItems: 'center',
-    backgroundColor: '#e94560',
+    backgroundColor: '#2196F3',
   },
   startButtonText: {
     color: '#fff',

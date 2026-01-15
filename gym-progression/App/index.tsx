@@ -3,8 +3,19 @@ import { useRouter } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useDatabase } from '../db/DatabaseContext';
-import { createWorkout, getRecentWorkouts, getAllTemplates, createWorkoutFromTemplate } from '../db/queries';
+import { createWorkout, getRecentWorkouts, getAllTemplates, createWorkoutFromTemplate, getInProgressWorkout } from '../db/queries';
 import { Workout, Template } from '../db/schema';
+
+// Theme colors matching workout screen
+const colors = {
+  primary: '#00c795',
+  background: '#1a1a1a',
+  card: '#2C2C2C',
+  inputBg: '#17362e',
+  text: '#ffffff',
+  textMuted: '#888888',
+  border: 'rgba(255,255,255,0.05)',
+};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -12,15 +23,24 @@ export default function HomeScreen() {
   const [recentWorkouts, setRecentWorkouts] = useState<Workout[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [inProgressWorkout, setInProgressWorkout] = useState<Workout | null>(null);
 
   const loadData = useCallback(async () => {
+    try {
+      const activeWorkout = await getInProgressWorkout(db);
+      setInProgressWorkout(activeWorkout);
+    } catch (error) {
+      console.log('No in-progress workout:', error);
+      setInProgressWorkout(null);
+    }
+
     try {
       const workouts = await getRecentWorkouts(db, 5);
       setRecentWorkouts(workouts);
     } catch (error) {
       console.error('Failed to load workouts:', error);
     }
-    
+
     try {
       const templateList = await getAllTemplates(db);
       setTemplates(templateList);
@@ -56,6 +76,23 @@ export default function HomeScreen() {
     });
   };
 
+  const handleContinueWorkout = () => {
+    if (inProgressWorkout) {
+      router.push(`/workout/${inProgressWorkout.id}`);
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return formatDate(dateStr);
+  };
+
   return (
     <View style={styles.container}>
       {/* Start Buttons */}
@@ -64,8 +101,8 @@ export default function HomeScreen() {
           <Text style={styles.startButtonText}>Start Empty Workout</Text>
         </Pressable>
 
-        <Pressable 
-          style={styles.templateButton} 
+        <Pressable
+          style={styles.templateButton}
           onPress={() => templates.length > 0 ? setShowTemplateModal(true) : router.push('/templates')}
         >
           <Text style={styles.templateButtonText}>Start from Template</Text>
@@ -152,8 +189,8 @@ export default function HomeScreen() {
               style={styles.templateList}
             />
 
-            <Pressable 
-              style={styles.closeModal} 
+            <Pressable
+              style={styles.closeModal}
               onPress={() => setShowTemplateModal(false)}
             >
               <Text style={styles.closeModalText}>Cancel</Text>
@@ -161,6 +198,22 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Fixed Bottom Continue Workout Banner */}
+      {inProgressWorkout && (
+        <Pressable style={styles.continueWorkoutBanner} onPress={handleContinueWorkout}>
+          <View style={styles.continueWorkoutContent}>
+            <View style={styles.continueWorkoutLeft}>
+              <View style={styles.activeIndicator} />
+              <View>
+                <Text style={styles.continueWorkoutTitle}>Workout in Progress</Text>
+                <Text style={styles.continueWorkoutSubtitle}>Started {formatTime(inProgressWorkout.started_at)}</Text>
+              </View>
+            </View>
+            <Text style={styles.continueWorkoutArrow}>CONTINUE →</Text>
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -169,17 +222,67 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
+    paddingBottom: 100,
+    backgroundColor: colors.background,
+  },
+  continueWorkoutBanner: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.primary,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  continueWorkoutContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingBottom: 30,
+  },
+  continueWorkoutLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  activeIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#fff',
+  },
+  continueWorkoutTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  continueWorkoutSubtitle: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  continueWorkoutArrow: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   startSection: {
     gap: 10,
     marginBottom: 25,
   },
   startButton: {
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
     paddingVertical: 20,
     borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#e94560',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -191,15 +294,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   templateButton: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#e94560',
+    borderColor: colors.primary,
   },
   templateButtonText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -213,68 +316,68 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '600',
   },
   seeAllText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: '500',
   },
   templateChip: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 20,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
   },
   templateChipText: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 14,
   },
   recentSection: {
     flex: 1,
   },
   emptyText: {
-    color: '#888',
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: 40,
   },
   workoutCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     padding: 16,
     borderRadius: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
   },
   workoutDate: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '500',
   },
   workoutNote: {
-    color: '#666',
+    color: colors.textMuted,
     fontSize: 14,
     marginTop: 4,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
     maxHeight: '70%',
   },
   modalTitle: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 15,
@@ -286,10 +389,10 @@ const styles = StyleSheet.create({
   templateOption: {
     padding: 18,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: colors.border,
   },
   templateOptionText: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 16,
   },
   closeModal: {
@@ -298,7 +401,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   closeModalText: {
-    color: '#888',
+    color: colors.textMuted,
     fontSize: 16,
   },
 });

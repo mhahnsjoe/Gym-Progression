@@ -22,6 +22,7 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       workout_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       order_index INTEGER NOT NULL,
+      note TEXT,
       FOREIGN KEY (workout_id) REFERENCES workouts(id) ON DELETE CASCADE
     );
   `);
@@ -53,6 +54,7 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       name TEXT NOT NULL,
       order_index INTEGER NOT NULL,
       default_sets INTEGER NOT NULL DEFAULT 3,
+      note TEXT,
       FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
     );
   `);
@@ -73,6 +75,7 @@ export interface Exercise {
   workout_id: number;
   name: string;
   order_index: number;
+  note: string | null;
 }
 
 export interface Set {
@@ -105,6 +108,7 @@ export interface TemplateExercise {
   name: string;
   order_index: number;
   default_sets: number;
+  note: string | null;
 }
 
 export interface TemplateWithExercises extends Template {

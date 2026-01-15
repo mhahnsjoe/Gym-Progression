@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   removeText: {
-    color: '#e94560',
+    color: '#2196F3',
     fontSize: 24,
     fontWeight: 'bold',
     paddingHorizontal: 5,
@@ -276,11 +276,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 100,
     borderWidth: 2,
-    borderColor: '#e94560',
+    borderColor: '#2196F3',
     borderStyle: 'dashed',
   },
   addExerciseText: {
-    color: '#e94560',
+    color: '#2196F3',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 2,
-    backgroundColor: '#e94560',
+    backgroundColor: '#2196F3',
     padding: 15,
     borderRadius: 8,
     alignItems: 'center',
