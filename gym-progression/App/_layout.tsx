@@ -15,13 +15,14 @@ export default function RootLayout() {
             headerTitleStyle: { color: '#ffffff' },
           }}
         >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="workout/[id]" options={{ title: 'Workout' }} />
-          <Stack.Screen name="history/index" options={{ title: 'History' }} />
+          <Stack.Screen name="workout/[id]" options={{ title: 'Workout', headerShown: false }} />
           <Stack.Screen name="history/[id]" options={{ title: 'Workout Details' }} />
           <Stack.Screen name="programs/index" options={{ headerShown: false }} />
           <Stack.Screen name="programs/new" options={{ headerShown: false }} />
           <Stack.Screen name="programs/[id]" options={{ headerShown: false }} />
+
           <Stack.Screen name="programs/[id]/edit" options={{ headerShown: false }} />
         </Stack>
       </DatabaseProvider>

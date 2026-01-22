@@ -44,17 +44,15 @@ export default function HistoryScreen() {
     });
   };
 
-  if (workouts.length === 0) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.emptyText}>No workout history yet.</Text>
-      </View>
-    );
-  }
+
 
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>History</Text>
+      </View>
       <FlatList
+        ListEmptyComponent={<Text style={styles.emptyText}>No workout history yet.</Text>}
         data={workouts}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
@@ -99,6 +97,20 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  header: {
+    paddingTop: 60,
+    paddingBottom: 20,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
   },
   emptyText: {
     color: colors.textMuted,

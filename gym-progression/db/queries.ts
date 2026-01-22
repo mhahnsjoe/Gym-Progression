@@ -672,3 +672,133 @@ export async function getDashboardStats(db: SQLite.SQLiteDatabase): Promise<Dash
     streak
   };
 }
+
+// ============================================
+// Volume Stats
+// ============================================
+
+export interface VolumeStat {
+  date: string;
+  volume: number;
+}
+
+export async function getWorkoutVolumeHistory(db: SQLite.SQLiteDatabase, limit = 10): Promise<VolumeStat[]> {
+  // Volume = sum(weight * reps) for all sets in a workout
+  const rows = await db.getAllAsync<{ date: string; volume: number }>(
+    `SELECT 
+      w.finished_at as date,
+      SUM(IFNULL(s.weight, 0) * IFNULL(s.reps, 0)) as volume
+    FROM workouts w
+    JOIN exercises e ON w.id = e.workout_id
+    JOIN sets s ON e.id = s.exercise_id
+    WHERE w.finished_at IS NOT NULL
+    GROUP BY w.id
+    HAVING volume > 0
+    ORDER BY w.finished_at DESC
+    LIMIT ?`,
+    limit
+  );
+  return rows.reverse(); // Return in chronological order for charts
+}
+
+export async function getProgramVolumeHistory(db: SQLite.SQLiteDatabase, programId: number, limit = 10): Promise<VolumeStat[]> {
+  const rows = await db.getAllAsync<{ date: string; volume: number }>(
+    `SELECT 
+      w.finished_at as date,
+      SUM(IFNULL(s.weight, 0) * IFNULL(s.reps, 0)) as volume
+    FROM workouts w
+    JOIN exercises e ON w.id = e.workout_id
+    JOIN sets s ON e.id = s.exercise_id
+    WHERE w.finished_at IS NOT NULL AND w.program_id = ?
+    GROUP BY w.id
+    HAVING volume > 0
+    ORDER BY w.finished_at DESC
+    LIMIT ?`,
+    programId,
+    limit
+  );
+  return rows.reverse();
+}
+
+export async function getOverallAverageVolume(db: SQLite.SQLiteDatabase): Promise<number> {
+  const result = await db.getFirstAsync<{ avg_volume: number }>(
+    `SELECT AVG(volume) as avg_volume FROM (
+      SELECT SUM(IFNULL(s.weight, 0) * IFNULL(s.reps, 0)) as volume
+      FROM workouts w
+      JOIN exercises e ON w.id = e.workout_id
+      JOIN sets s ON e.id = s.exercise_id
+      WHERE w.finished_at IS NOT NULL
+      GROUP BY w.id
+      HAVING volume > 0
+    )`
+  );
+  return result?.avg_volume || 0;
+}
+
+export async function getProgramAverageVolume(db: SQLite.SQLiteDatabase, programId: number): Promise<number> {
+  const result = await db.getFirstAsync<{ avg_volume: number }>(
+    `SELECT AVG(volume) as avg_volume FROM (
+      SELECT SUM(IFNULL(s.weight, 0) * IFNULL(s.reps, 0)) as volume
+      FROM workouts w
+      JOIN exercises e ON w.id = e.workout_id
+      JOIN sets s ON e.id = s.exercise_id
+      WHERE w.finished_at IS NOT NULL AND w.program_id = ?
+      GROUP BY w.id
+      HAVING volume > 0
+    )`,
+    programId
+  );
+  return result?.avg_volume || 0;
+}
+
+export type Timeframe = 'week' | 'month' | 'year' | 'all';
+
+export interface TimeframeStats {
+  totalVolume: number;
+  averageVolume: number;
+  workoutCount: number;
+}
+
+export async function getTimeframeVolumeStats(db: SQLite.SQLiteDatabase, timeframe: Timeframe): Promise<TimeframeStats> {
+  let dateFilter = '';
+  switch (timeframe) {
+    case 'week':
+      // Start of current week (assuming Monday)
+      dateFilter = "AND finished_at >= date('now', 'weekday 1', '-7 days')";
+      break;
+    case 'month':
+      dateFilter = "AND finished_at >= date('now', 'start of month')";
+      break;
+    case 'year':
+      dateFilter = "AND finished_at >= date('now', 'start of year')";
+      break;
+    case 'all':
+    default:
+      dateFilter = '';
+      break;
+  }
+
+  const query = `
+    SELECT 
+      SUM(volume) as total_volume,
+      AVG(volume) as avg_volume,
+      COUNT(*) as workout_count
+    FROM (
+      SELECT SUM(IFNULL(s.weight, 0) * IFNULL(s.reps, 0)) as volume
+      FROM workouts w
+      JOIN exercises e ON w.id = e.workout_id
+      JOIN sets s ON e.id = s.exercise_id
+      WHERE w.finished_at IS NOT NULL ${dateFilter}
+      GROUP BY w.id
+      HAVING volume > 0
+    )
+  `;
+
+  const result = await db.getFirstAsync<{ total_volume: number; avg_volume: number; workout_count: number }>(query);
+
+  return {
+    totalVolume: result?.total_volume || 0,
+    averageVolume: result?.avg_volume || 0,
+    workoutCount: result?.workout_count || 0
+  };
+}
