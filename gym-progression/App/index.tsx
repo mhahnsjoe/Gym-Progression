@@ -29,8 +29,8 @@ const colors = {
   card: '#171717',
   surface: '#262626',
   text: '#ffffff',
-  textMuted: 'rgba(255,255,255,0.4)',
-  border: 'rgba(255,255,255,0.1)',
+  textMuted: '#888888',
+  border: 'rgba(255,255,255,0.05)',
 };
 
 export default function HomeScreen() {
