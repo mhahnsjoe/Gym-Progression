@@ -15,6 +15,7 @@ import {
   getNextProgramDay,
   createWorkoutFromTemplate,
   createWorkoutFromProgramDay,
+  getActiveProgram,
 } from '../db/queries';
 import { Workout, Program, ProgramDayWithExercises, ProgramWithDays } from '../db/schema';
 import WorkoutConflictModal from '../components/WorkoutConflictModal';
@@ -33,6 +34,14 @@ const colors = {
   border: 'rgba(255,255,255,0.05)',
 };
 
+const PROGRAM_IMAGES = [
+  'https://lh3.googleusercontent.com/aida-public/AB6AXuBrPOttjjqe2V4DxPLoAspONU-P0tMp2cbFCvKLtGfjSXwUrF4m5-zG4oAEpWoyaFFb5_d_bSyXkkNZ8xB3b5Jlwj4Z-4vItay99XYRqGFw08gdPf8WbJOGxacXQXYt-5kx9q4scHJzGVHReNgR4jsszj-06BWjtueq9RnXTV5D_5PjyWTg86HLSd8LeQNtgpXk7KcPYZmYDz1Ylf_qNwCbrccjAsxNnbWg65h5BQIzfES8NJkDFBj0QDLoWbwM2Jp3vqWjEBfC46Y',
+  'https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?q=80&w=2069&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=2070&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1599058945522-28d584b6f0ff?q=80&w=2069&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=2070&auto=format&fit=crop',
+];
+
 export default function HomeScreen() {
   const router = useRouter();
   const db = useDatabase();
@@ -42,6 +51,8 @@ export default function HomeScreen() {
   const [nextProgramInfo, setNextProgramInfo] = useState<{ program: Program, nextDay: ProgramDayWithExercises } | null>(null);
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [pendingProgramWorkout, setPendingProgramWorkout] = useState<{ programDayId: number, dayIndex: number } | null>(null);
+  const [activeProgram, setActiveProgram] = useState<ProgramWithDays | null>(null);
+  const [showProgramDayModal, setShowProgramDayModal] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -56,6 +67,9 @@ export default function HomeScreen() {
 
       const activeWorkout = await getInProgressWorkout(db);
       setInProgressWorkout(activeWorkout);
+
+      const activeProg = await getActiveProgram(db);
+      setActiveProgram(activeProg);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     }
@@ -218,13 +232,13 @@ export default function HomeScreen() {
               <View style={styles.tag}>
                 <Text style={styles.tagText}>NEXT UP: {nextProgramInfo.program.name.toUpperCase()}</Text>
               </View>
-              <Text style={styles.cardDate}>{nextProgramInfo.nextDay.name}</Text>
+              <Text style={styles.cardDate}>
+                {nextProgramInfo.nextDay.exercises.length > 0
+                  ? `${nextProgramInfo.nextDay.exercises.length} Exercises`
+                  : 'Rest Day'}
+              </Text>
             </View>
-            <Text style={styles.cardTitle}>
-              {nextProgramInfo.nextDay.exercises.length > 0
-                ? `${nextProgramInfo.nextDay.exercises.length} Exercises`
-                : 'Rest Day'}
-            </Text>
+            <Text style={styles.cardTitle}>{nextProgramInfo.nextDay.name}</Text>
 
             {nextProgramInfo.nextDay.exercises.length > 0 ? (
               <Pressable
@@ -279,25 +293,27 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Start Workout Button */}
-        <Pressable style={styles.startWorkoutButton} onPress={handleStartWorkout}>
-          <MaterialCommunityIcons name="plus-circle" size={24} color="black" />
-          <Text style={styles.startWorkoutText}>START EMPTY WORKOUT</Text>
-        </Pressable>
+        {/* Start Workout Buttons */}
+        <View style={styles.actionButtons}>
+          <Pressable style={styles.startWorkoutButton} onPress={handleStartWorkout}>
+            <MaterialCommunityIcons name="plus-circle" size={24} color="black" />
+            <Text style={styles.startWorkoutText}>START EMPTY WORKOUT</Text>
+          </Pressable>
+
+          {activeProgram && (
+            <Pressable
+              style={styles.programDayButton}
+              onPress={() => setShowProgramDayModal(true)}
+            >
+              <MaterialCommunityIcons name="format-list-bulleted" size={24} color={colors.primary} />
+              <Text style={styles.programDayButtonText}>SELECT PROGRAM WORKOUT</Text>
+            </Pressable>
+          )}
+        </View>
 
         {/* Quick Stats Grid */}
         {/* Quick Stats Grid */}
-        <View style={styles.grid}>
-          <View style={[styles.gridItem, { flex: 1 }]}>
-            <View style={styles.gridIconContainer}>
-              <MaterialCommunityIcons name="lightning-bolt" size={24} color={colors.primary} />
-            </View>
-            <View>
-              <Text style={styles.gridValue}>{stats?.streak || 0}</Text>
-              <Text style={styles.gridLabel}>DAY STREAK</Text>
-            </View>
-          </View>
-        </View>
+
 
         {/* Programs Section */}
         <View style={styles.section}>
@@ -325,10 +341,16 @@ export default function HomeScreen() {
                   onPress={() => router.push(`/programs/${program.id}`)}
                 >
                   <View style={styles.programImageContainer}>
-                    <Image
-                      source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBrPOttjjqe2V4DxPLoAspONU-P0tMp2cbFCvKLtGfjSXwUrF4m5-zG4oAEpWoyaFFb5_d_bSyXkkNZ8xB3b5Jlwj4Z-4vItay99XYRqGFw08gdPf8WbJOGxacXQXYt-5kx9q4scHJzGVHReNgR4jsszj-06BWjtueq9RnXTV5D_5PjyWTg86HLSd8LeQNtgpXk7KcPYZmYDz1Ylf_qNwCbrccjAsxNnbWg65h5BQIzfES8NJkDFBj0QDLoWbwM2Jp3vqWjEBfC46Y' }}
-                      style={styles.programImage}
-                    />
+                    {program.image_uri ? (
+                      <Image source={{ uri: program.image_uri }} style={styles.programImage} />
+                    ) : (program.image_index !== undefined && program.image_index !== -1 && PROGRAM_IMAGES[program.image_index]) ? (
+                      <Image
+                        source={{ uri: PROGRAM_IMAGES[program.image_index] }}
+                        style={styles.programImage}
+                      />
+                    ) : (
+                      <View style={[styles.programImage, { backgroundColor: colors.surface }]} />
+                    )}
                     <LinearGradient
                       colors={['transparent', 'rgba(23,23,23,0.4)', colors.card]}
                       style={styles.programGradient}
@@ -350,16 +372,10 @@ export default function HomeScreen() {
                         </View>
                       )}
                     </View>
-                    <Text style={styles.programDetail}>{program.description || 'Focus Build'}</Text>
-                    <View style={styles.progressContainer}>
-                      <View style={styles.progressHeader}>
-                        <Text style={styles.progressLabel}>PROGRESS</Text>
-                        <Text style={styles.progressValue}>0%</Text>
-                      </View>
-                      <View style={styles.progressBarBg}>
-                        <View style={[styles.progressBarFill, { width: '0%' }]} />
-                      </View>
-                    </View>
+                    {program.description && (
+                      <Text style={styles.programDetail}>{program.description}</Text>
+                    )}
+
                   </View>
                 </Pressable>
               ))
@@ -368,10 +384,7 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <Pressable style={styles.fab} onPress={handleStartWorkout}>
-        <MaterialCommunityIcons name="plus" size={32} color="black" />
-      </Pressable>
+
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
@@ -400,6 +413,37 @@ export default function HomeScreen() {
         onFinishAndStartNew={handleConflictFinish}
         onDeleteAndStartNew={handleConflictDelete}
       />
+
+      <Modal visible={showProgramDayModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Workout Day</Text>
+            <ScrollView style={styles.modalScroll}>
+              {activeProgram?.days.map((day) => (
+                <Pressable
+                  key={day.id}
+                  style={styles.modalOption}
+                  onPress={() => {
+                    setShowProgramDayModal(false);
+                    handleStartProgramWorkout(day.id, day.day_index);
+                  }}
+                >
+                  <View>
+                    <Text style={styles.modalOptionTitle}>{day.name}</Text>
+                    <Text style={styles.modalOptionSubtitle}>
+                      {day.exercises.length > 0 ? `${day.exercises.length} Exercises` : 'Rest Day'}
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textMuted} />
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable style={styles.closeModal} onPress={() => setShowProgramDayModal(false)}>
+              <Text style={styles.closeModalText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -597,6 +641,77 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: -0.5,
+  },
+  actionButtons: {
+    gap: 12,
+  },
+  programDayButton: {
+    backgroundColor: colors.card,
+    paddingVertical: 20,
+    borderRadius: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  programDayButtonText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalScroll: {
+    maxHeight: 400,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    backgroundColor: colors.surface,
+    marginBottom: 8,
+    borderRadius: 12,
+  },
+  modalOptionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modalOptionSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  closeModal: {
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  closeModalText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
   grid: {
     flexDirection: 'row',

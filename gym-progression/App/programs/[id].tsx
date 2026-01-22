@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions, Image } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,6 +18,14 @@ const colors = {
     textMuted: 'rgba(255,255,255,0.4)',
     border: 'rgba(255,255,255,0.1)',
 };
+
+const PROGRAM_IMAGES = [
+    'https://lh3.googleusercontent.com/aida-public/AB6AXuBrPOttjjqe2V4DxPLoAspONU-P0tMp2cbFCvKLtGfjSXwUrF4m5-zG4oAEpWoyaFFb5_d_bSyXkkNZ8xB3b5Jlwj4Z-4vItay99XYRqGFw08gdPf8WbJOGxacXQXYt-5kx9q4scHJzGVHReNgR4jsszj-06BWjtueq9RnXTV5D_5PjyWTg86HLSd8LeQNtgpXk7KcPYZmYDz1Ylf_qNwCbrccjAsxNnbWg65h5BQIzfES8NJkDFBj0QDLoWbwM2Jp3vqWjEBfC46Y',
+    'https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?q=80&w=2069&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=2070&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1599058945522-28d584b6f0ff?q=80&w=2069&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=2070&auto=format&fit=crop',
+];
 
 export default function ProgramDetailsScreen() {
     const { id } = useLocalSearchParams();
@@ -80,6 +88,16 @@ export default function ProgramDetailsScreen() {
 
             <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
                 <View style={styles.infoCard}>
+                    {/* Add Image Here if exists */}
+                    {/* Add Image Here if exists */}
+                    {(program.image_uri || (program.image_index !== undefined && program.image_index !== -1 && PROGRAM_IMAGES[program.image_index])) && (
+                        <View style={styles.imageContainer}>
+                            <Image
+                                source={{ uri: program.image_uri || PROGRAM_IMAGES[program.image_index] }}
+                                style={styles.programHeroImage}
+                            />
+                        </View>
+                    )}
                     <Text style={styles.programName}>{program.name}</Text>
                     <Text style={styles.programDesc}>{program.description || 'No description'}</Text>
 
@@ -167,10 +185,25 @@ const styles = StyleSheet.create({
     infoCard: {
         backgroundColor: colors.card,
         borderRadius: 24,
+
         padding: 24,
+        paddingTop: 16,
         marginBottom: 32,
         borderWidth: 1,
         borderColor: colors.border,
+    },
+    imageContainer: {
+        height: 200,
+        marginHorizontal: -24,
+        marginTop: -16,
+        marginBottom: 20,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        overflow: 'hidden',
+    },
+    programHeroImage: {
+        width: '100%',
+        height: '100%',
     },
     programName: {
         color: 'white',

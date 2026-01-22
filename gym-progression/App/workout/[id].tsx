@@ -10,7 +10,7 @@ import {
   Modal,
   Switch,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useDatabase } from '../../db/DatabaseContext';
 import {
   getWorkoutWithExercises,
@@ -23,6 +23,7 @@ import {
   finishWorkout,
   deleteWorkout,
   saveWorkoutAsTemplate,
+  isWorkoutEmpty,
 } from '../../db/queries';
 import { WorkoutWithExercises, ExerciseWithSets } from '../../db/schema';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
@@ -58,6 +59,7 @@ const COMMON_EXERCISES = [
 export default function WorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const db = useDatabase();
   const [workout, setWorkout] = useState<WorkoutWithExercises | null>(null);
   const [showExerciseModal, setShowExerciseModal] = useState(false);
@@ -81,6 +83,25 @@ export default function WorkoutScreen() {
   useEffect(() => {
     loadWorkout();
   }, [loadWorkout]);
+
+  // Automatically delete empty workout if going back (without finishing)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+      const actionType = e.data.action.type;
+      // Only trigger on back navigation, not on replace (which happens when finishing)
+      if (actionType === 'GO_BACK' || actionType === 'POP') {
+        if (id) {
+          isWorkoutEmpty(db, parseInt(id)).then((isEmpty) => {
+            if (isEmpty) {
+              deleteWorkout(db, parseInt(id));
+            }
+          });
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, db, id]);
 
   const handleAddExercise = async (name: string) => {
     if (!id || !name.trim()) return;
@@ -168,7 +189,16 @@ export default function WorkoutScreen() {
     router.replace('/');
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    // If workout is purely empty (no exercises), just delete and leave without prompt
+    const isActiveAndEmpty = workout && workout.exercises.length === 0 && (!workout.note || !workout.note.trim());
+
+    if (isActiveAndEmpty) {
+      if (id) await deleteWorkout(db, parseInt(id));
+      router.replace('/');
+      return;
+    }
+
     setShowCancelWorkoutModal(true);
   };
 

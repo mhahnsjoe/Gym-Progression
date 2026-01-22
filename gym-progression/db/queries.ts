@@ -329,12 +329,14 @@ export async function saveWorkoutAsTemplate(
 // Program operations
 // ============================================
 
-export async function createProgram(db: SQLite.SQLiteDatabase, name: string, description?: string): Promise<number> {
+export async function createProgram(db: SQLite.SQLiteDatabase, name: string, description?: string, imageIndex: number = 0, imageUri?: string): Promise<number> {
   const result = await db.runAsync(
-    'INSERT INTO programs (name, description, created_at, is_active) VALUES (?, ?, ?, 0)',
+    'INSERT INTO programs (name, description, created_at, is_active, image_index, image_uri) VALUES (?, ?, ?, 0, ?, ?)',
     name,
     description || null,
-    new Date().toISOString()
+    new Date().toISOString(),
+    imageIndex,
+    imageUri || null
   );
   return result.lastInsertRowId;
 }
@@ -357,7 +359,7 @@ export async function addProgramDay(
 }
 
 export async function getAllPrograms(db: SQLite.SQLiteDatabase): Promise<Program[]> {
-  const rows = await db.getAllAsync<any>('SELECT * FROM programs ORDER BY created_at DESC');
+  const rows = await db.getAllAsync<any>('SELECT * FROM programs ORDER BY is_active DESC, created_at DESC');
   return rows.map(row => ({
     ...row,
     is_active: row.is_active === 1
@@ -498,12 +500,16 @@ export async function updateProgram(
   db: SQLite.SQLiteDatabase,
   programId: number,
   name: string,
-  description: string
+  description: string,
+  imageIndex: number = 0,
+  imageUri?: string
 ): Promise<void> {
   await db.runAsync(
-    'UPDATE programs SET name = ?, description = ? WHERE id = ?',
+    'UPDATE programs SET name = ?, description = ?, image_index = ?, image_uri = ? WHERE id = ?',
     name,
     description,
+    imageIndex,
+    imageUri || null,
     programId
   );
 

@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal, Alert, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { useDatabase } from '../../db/DatabaseContext';
@@ -29,11 +30,21 @@ interface ProgramDayEntry {
     isRestDay: boolean;
 }
 
+const PROGRAM_IMAGES = [
+    'https://lh3.googleusercontent.com/aida-public/AB6AXuBrPOttjjqe2V4DxPLoAspONU-P0tMp2cbFCvKLtGfjSXwUrF4m5-zG4oAEpWoyaFFb5_d_bSyXkkNZ8xB3b5Jlwj4Z-4vItay99XYRqGFw08gdPf8WbJOGxacXQXYt-5kx9q4scHJzGVHReNgR4jsszj-06BWjtueq9RnXTV5D_5PjyWTg86HLSd8LeQNtgpXk7KcPYZmYDz1Ylf_qNwCbrccjAsxNnbWg65h5BQIzfES8NJkDFBj0QDLoWbwM2Jp3vqWjEBfC46Y',
+    'https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?q=80&w=2069&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=2070&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1599058945522-28d584b6f0ff?q=80&w=2069&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=2070&auto=format&fit=crop',
+];
+
 export default function NewProgramScreen() {
     const router = useRouter();
     const db = useDatabase();
     const [programName, setProgramName] = useState('');
     const [description, setDescription] = useState('');
+    const [selectedImageIndex, setSelectedImageIndex] = useState(0); // Default to first image
+    const [customImageUri, setCustomImageUri] = useState<string | null>(null);
     const [days, setDays] = useState<ProgramDayEntry[]>([
         { dayIndex: 0, name: 'Day 1', exercises: [], isRestDay: true }
     ]);
@@ -146,6 +157,20 @@ export default function NewProgramScreen() {
         }));
     };
 
+    const pickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [16, 9],
+            quality: 0.8,
+        });
+
+        if (!result.canceled) {
+            setCustomImageUri(result.assets[0].uri);
+            setSelectedImageIndex(-2); // Special index for custom image
+        }
+    };
+
     const handleSave = async () => {
         if (!programName.trim()) {
             setErrorMsg('Please enter a program name.');
@@ -154,7 +179,9 @@ export default function NewProgramScreen() {
         }
 
         try {
-            const programId = await createProgram(db, programName.trim(), description.trim());
+            const finalImageIndex = selectedImageIndex === -2 ? -1 : selectedImageIndex;
+            const programId = await createProgram(db, programName.trim(), description.trim(), finalImageIndex, customImageUri || undefined);
+
 
             for (const day of days) {
                 const finalName = day.name.trim() || `Day ${day.dayIndex + 1}`;
@@ -203,6 +230,76 @@ export default function NewProgramScreen() {
                         onChangeText={setDescription}
                     />
                 </View>
+
+                {/* Image Picker */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.label}>COVER IMAGE</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll} contentContainerStyle={styles.imageScrollContent}>
+                    {PROGRAM_IMAGES.map((uri, index) => (
+                        <Pressable
+                            key={index}
+                            style={[
+                                styles.imageOption,
+                                selectedImageIndex === index && styles.imageOptionSelected
+                            ]}
+                            onPress={() => setSelectedImageIndex(index)}
+                        >
+                            <Image
+                                source={{ uri }}
+                                style={styles.imageOptionImg}
+                            />
+                            {selectedImageIndex === index && (
+                                <View style={styles.checkIcon}>
+                                    <MaterialCommunityIcons name="check" size={16} color="black" />
+                                </View>
+                            )}
+                        </Pressable>
+                    ))}
+                    {/* Custom Image option */}
+                    <Pressable
+                        style={[
+                            styles.imageOption,
+                            selectedImageIndex === -2 && styles.imageOptionSelected,
+                            { backgroundColor: 'rgba(34, 197, 94, 0.1)', justifyContent: 'center', alignItems: 'center' }
+                        ]}
+                        onPress={pickImage}
+                    >
+                        {customImageUri ? (
+                            <Image source={{ uri: customImageUri }} style={styles.imageOptionImg} />
+                        ) : (
+                            <MaterialCommunityIcons name="image-plus" size={24} color={colors.primary} />
+                        )}
+
+                        {!customImageUri && <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700', marginTop: 4 }}>GALLERY</Text>}
+
+                        {selectedImageIndex === -2 && (
+                            <View style={styles.checkIcon}>
+                                <MaterialCommunityIcons name="check" size={16} color="black" />
+                            </View>
+                        )}
+                    </Pressable>
+
+                    {/* No image option */}
+                    <Pressable
+                        style={[
+                            styles.imageOption,
+                            styles.noImageOption,
+                            selectedImageIndex === -1 && styles.imageOptionSelected
+                        ]}
+                        onPress={() => setSelectedImageIndex(-1)}
+                    >
+                        <MaterialCommunityIcons name="image-off-outline" size={24} color={selectedImageIndex === -1 ? 'white' : colors.textMuted} />
+                        <Text style={[styles.noImageText, selectedImageIndex === -1 && styles.noImageTextSelected]}>None</Text>
+                        {selectedImageIndex === -1 && (
+                            <View style={styles.checkIcon}>
+                                <MaterialCommunityIcons name="check" size={16} color="black" />
+                            </View>
+                        )}
+                    </Pressable>
+                </ScrollView>
+
+                <View style={styles.sectionDivider} />
 
                 <View style={styles.sectionHeader}>
                     <Text style={styles.label}>CYCLE SEQUENCE</Text>
@@ -445,6 +542,61 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: colors.textMuted,
         fontWeight: '500',
+    },
+    imageScroll: {
+        marginBottom: 24,
+        marginHorizontal: -16,
+    },
+    imageScrollContent: {
+        paddingHorizontal: 16,
+        gap: 12,
+    },
+    imageOption: {
+        width: 100,
+        height: 60,
+        borderRadius: 12,
+        overflow: 'hidden',
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    imageOptionSelected: {
+        borderColor: colors.primary,
+    },
+    imageOptionImg: {
+        width: '100%',
+        height: '100%',
+    },
+    noImageOption: {
+        backgroundColor: colors.card,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: colors.border,
+    },
+    noImageText: {
+        color: colors.textMuted,
+        fontSize: 10,
+        fontWeight: '700',
+        marginTop: 4,
+    },
+    noImageTextSelected: {
+        color: 'white',
+    },
+    checkIcon: {
+        position: 'absolute',
+        top: 4,
+        right: 4,
+        backgroundColor: colors.primary,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    sectionDivider: {
+        height: 1,
+        backgroundColor: colors.border,
+        marginBottom: 24,
     },
     sectionHeader: {
         flexDirection: 'row',

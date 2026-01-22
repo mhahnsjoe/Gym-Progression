@@ -82,9 +82,34 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       name TEXT NOT NULL,
       description TEXT,
       created_at TEXT NOT NULL,
-      is_active INTEGER NOT NULL DEFAULT 0
+      is_active INTEGER NOT NULL DEFAULT 0,
+      image_index INTEGER DEFAULT 0,
+      image_uri TEXT
     );
   `);
+
+  // Check if programs table has image_index column
+  const programTableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(programs);');
+  const hasImageIndex = programTableInfo.some(col => col.name === 'image_index');
+
+  if (!hasImageIndex) {
+    try {
+      await db.execAsync('ALTER TABLE programs ADD COLUMN image_index INTEGER DEFAULT 0;');
+    } catch (e) {
+      console.log('Program image_index column migration failed or already exists', e);
+    }
+  }
+
+  // Check if programs table has image_uri column
+  const hasImageUri = programTableInfo.some(col => col.name === 'image_uri');
+
+  if (!hasImageUri) {
+    try {
+      await db.execAsync('ALTER TABLE programs ADD COLUMN image_uri TEXT;');
+    } catch (e) {
+      console.log('Program image_uri column migration failed or already exists', e);
+    }
+  }
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS program_days (
@@ -174,6 +199,8 @@ export interface Program {
   description: string | null;
   created_at: string;
   is_active: boolean;
+  image_index: number;
+  image_uri: string | null;
 }
 
 export interface ProgramDay {
