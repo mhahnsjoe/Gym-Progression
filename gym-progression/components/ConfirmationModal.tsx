@@ -2,12 +2,12 @@ import React from 'react';
 import { Modal, View, Text, StyleSheet, Pressable } from 'react-native';
 
 const colors = {
-    primary: '#00c795',
-    background: '#1a1a1a',
-    card: '#2C2C2C',
+    primary: '#22C55E',
+    background: '#0A0A0A',
+    card: '#171717',
     text: '#ffffff',
-    textMuted: '#888888',
-    border: 'rgba(255,255,255,0.05)',
+    textMuted: 'rgba(255,255,255,0.4)',
+    border: 'rgba(255,255,255,0.1)',
 };
 
 interface ConfirmationModalProps {

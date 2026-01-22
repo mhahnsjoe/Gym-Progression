@@ -3,14 +3,26 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-nati
 import ConfirmationModal from '../../components/ConfirmationModal';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useDatabase } from '../../db/DatabaseContext';
-import { getWorkoutWithExercises, deleteWorkout } from '../../db/queries';
+import { getWorkoutWithExercises, deleteWorkout, WorkoutWithExercisesAndInfo } from '../../db/queries';
 import { WorkoutWithExercises } from '../../db/schema';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+const colors = {
+  primary: '#22C55E',
+  background: '#0A0A0A',
+  card: '#171717',
+  surface: '#262626',
+  text: '#ffffff',
+  textMuted: 'rgba(255,255,255,0.4)',
+  border: 'rgba(255,255,255,0.1)',
+  danger: '#EF4444',
+};
 
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const db = useDatabase();
-  const [workout, setWorkout] = useState<WorkoutWithExercises | null>(null);
+  const [workout, setWorkout] = useState<WorkoutWithExercisesAndInfo | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
@@ -42,40 +54,65 @@ export default function WorkoutDetailScreen() {
   if (!workout) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading...</Text>
+        <Text style={styles.loadingText}>Loading session details...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <Text style={styles.date}>{formatDate(workout.started_at)}</Text>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.headerInfo}>
+          <Text style={styles.workoutTitle}>{workout.day_name || 'Quick Workout'}</Text>
+          <Text style={styles.programTitle}>
+            {workout.program_name ? workout.program_name.toUpperCase() : 'CUSTOM SESSION'}
+          </Text>
+
+          <View style={styles.headerRow}>
+            <Text style={styles.date}>{formatDate(workout.started_at)}</Text>
+            <View style={styles.statusBadge}>
+              <Text style={styles.statusText}>COMPLETED</Text>
+            </View>
+          </View>
+        </View>
 
         {workout.note && (
           <View style={styles.noteCard}>
-            <Text style={styles.noteLabel}>Notes</Text>
+            <View style={styles.noteHeader}>
+              <MaterialCommunityIcons name="note-text-outline" size={16} color={colors.primary} />
+              <Text style={styles.noteLabel}>SESSION NOTES</Text>
+            </View>
             <Text style={styles.noteText}>{workout.note}</Text>
           </View>
         )}
 
+        <Text style={styles.sectionTitle}>EXERCISES</Text>
+
         {workout.exercises.length === 0 ? (
-          <Text style={styles.emptyText}>No exercises logged.</Text>
+          <View style={styles.emptyContainer}>
+            <MaterialCommunityIcons name="dumbbell" size={48} color={colors.border} />
+            <Text style={styles.emptyText}>No exercises logged for this session.</Text>
+          </View>
         ) : (
           workout.exercises.map((exercise) => (
             <View key={exercise.id} style={styles.exerciseCard}>
-              <Text style={styles.exerciseName}>{exercise.name}</Text>
+              <View style={styles.exerciseHeader}>
+                <Text style={styles.exerciseName}>{exercise.name}</Text>
+                <View style={styles.setsCountBadge}>
+                  <Text style={styles.setsCountText}>{exercise.sets.length} SETS</Text>
+                </View>
+              </View>
 
               <View style={styles.setsHeader}>
-                <Text style={styles.setLabel}>Set</Text>
-                <Text style={styles.setLabel}>Weight</Text>
-                <Text style={styles.setLabel}>Reps</Text>
+                <Text style={[styles.setLabel, { textAlign: 'left', width: 40 }]}>#</Text>
+                <Text style={styles.setLabel}>WEIGHT</Text>
+                <Text style={styles.setLabel}>REPS</Text>
               </View>
 
               {exercise.sets.map((set, index) => (
                 <View key={set.id} style={styles.setRow}>
-                  <Text style={styles.setNumber}>{index + 1}</Text>
-                  <Text style={styles.setValue}>{set.weight}</Text>
+                  <Text style={[styles.setNumber, { textAlign: 'left', width: 40 }]}>{index + 1}</Text>
+                  <Text style={styles.setValue}>{set.weight} <Text style={styles.unitText}>kg</Text></Text>
                   <Text style={styles.setValue}>{set.reps}</Text>
                 </View>
               ))}
@@ -106,104 +143,196 @@ export default function WorkoutDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
-    padding: 15,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
   },
   loadingText: {
-    color: '#666',
+    color: colors.textMuted,
     textAlign: 'center',
-    marginTop: 50,
+    marginTop: 100,
+    fontSize: 16,
+  },
+  headerInfo: {
+    marginBottom: 24,
+  },
+  workoutTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  programTitle: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   date: {
-    color: '#1a1a1a',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  statusBadge: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  statusText: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   noteCard: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 15,
+    backgroundColor: colors.card,
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
+  },
+  noteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
   },
   noteLabel: {
-    color: '#888',
-    fontSize: 12,
-    marginBottom: 5,
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   noteText: {
-    color: '#1a1a1a',
-    fontSize: 14,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  sectionTitle: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    marginTop: 40,
+    gap: 12,
   },
   emptyText: {
-    color: '#888',
+    color: colors.textMuted,
+    fontSize: 14,
     textAlign: 'center',
-    marginTop: 30,
   },
   exerciseCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
+  },
+  exerciseHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   exerciseName: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 10,
+    fontWeight: '800',
+    flex: 1,
+  },
+  setsCountBadge: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  setsCountText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
   },
   setsHeader: {
     flexDirection: 'row',
-    marginBottom: 8,
-    paddingHorizontal: 10,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 8,
+    paddingVertical: 8,
   },
   setLabel: {
-    color: '#888',
-    fontSize: 12,
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
     flex: 1,
     textAlign: 'center',
+    letterSpacing: 0.5,
   },
   setRow: {
     flexDirection: 'row',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   setNumber: {
-    color: '#888',
+    color: colors.textMuted,
     flex: 1,
     textAlign: 'center',
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '700',
   },
   setValue: {
-    color: '#1a1a1a',
+    color: colors.text,
     flex: 1,
     textAlign: 'center',
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '700',
+  },
+  unitText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '400',
   },
   bottomButtons: {
-    padding: 15,
-    backgroundColor: '#fff',
+    padding: 16,
+    paddingBottom: 32,
+    backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: colors.border,
   },
   deleteButton: {
-    padding: 15,
-    borderRadius: 8,
+    padding: 18,
+    borderRadius: 16,
     alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderWidth: 1,
-    borderColor: '#e94560',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   deleteButtonText: {
-    color: '#e94560',
-    fontWeight: '600',
+    color: colors.danger,
+    fontWeight: '800',
+    fontSize: 14,
+    letterSpacing: 1,
   },
 });

@@ -64,8 +64,6 @@ export default function WorkoutScreen() {
   const [customExercise, setCustomExercise] = useState('');
   const [finishNote, setFinishNote] = useState('');
   const [showFinishModal, setShowFinishModal] = useState(false);
-  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
-  const [templateName, setTemplateName] = useState('');
   const [expandedExercises, setExpandedExercises] = useState<Set<number>>(new Set());
   const [activeExerciseId, setActiveExerciseId] = useState<number | null>(null);
 
@@ -166,13 +164,6 @@ export default function WorkoutScreen() {
 
   const handleFinish = async () => {
     if (!id) return;
-    if (saveAsTemplate && templateName.trim()) {
-      try {
-        await saveWorkoutAsTemplate(db, parseInt(id), templateName.trim());
-      } catch (error) {
-        console.error('Failed to save template:', error);
-      }
-    }
     await finishWorkout(db, parseInt(id), finishNote);
     router.replace('/');
   };
@@ -189,22 +180,6 @@ export default function WorkoutScreen() {
   };
 
   const openFinishModal = () => {
-    if (workout?.exercises.length) {
-      const firstExercise = workout.exercises[0].name;
-      if (firstExercise.toLowerCase().includes('bench') ||
-        firstExercise.toLowerCase().includes('press')) {
-        setTemplateName('Push Day');
-      } else if (firstExercise.toLowerCase().includes('squat') ||
-        firstExercise.toLowerCase().includes('leg')) {
-        setTemplateName('Leg Day');
-      } else if (firstExercise.toLowerCase().includes('pull') ||
-        firstExercise.toLowerCase().includes('row') ||
-        firstExercise.toLowerCase().includes('deadlift')) {
-        setTemplateName('Pull Day');
-      } else {
-        setTemplateName('');
-      }
-    }
     setShowFinishModal(true);
   };
 
@@ -408,29 +383,7 @@ export default function WorkoutScreen() {
               multiline
             />
 
-            {workout.exercises.length > 0 && (
-              <View style={styles.templateSection}>
-                <View style={styles.templateToggle}>
-                  <Text style={styles.templateToggleText}>Save as Template</Text>
-                  <Switch
-                    value={saveAsTemplate}
-                    onValueChange={setSaveAsTemplate}
-                    trackColor={{ false: colors.card, true: colors.primary }}
-                    thumbColor="#fff"
-                  />
-                </View>
-
-                {saveAsTemplate && (
-                  <TextInput
-                    style={styles.customInput}
-                    placeholder="Template name (e.g., Push Day)"
-                    placeholderTextColor="#666"
-                    value={templateName}
-                    onChangeText={setTemplateName}
-                  />
-                )}
-              </View>
-            )}
+            {/* Template saving removed in favor of Programs */}
 
             <Pressable style={styles.finishButtonModal} onPress={handleFinish}>
               <Text style={styles.finishButtonText}>Save Workout</Text>
