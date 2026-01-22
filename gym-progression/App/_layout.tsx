@@ -1,24 +1,30 @@
 import { Stack } from 'expo-router';
 import { DatabaseProvider } from '../db/DatabaseContext';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function RootLayout() {
   return (
-    <DatabaseProvider>
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: '#ffffff' },
-          headerTintColor: '#1a1a1a',
-          headerShadowVisible: false,
-          contentStyle: { backgroundColor: '#f5f5f5' },
-        }}
-      >
-        <Stack.Screen name="index" options={{ title: 'Gym Tracker' }} />
-        <Stack.Screen name="workout/[id]" options={{ title: 'Workout' }} />
-        <Stack.Screen name="history/index" options={{ title: 'History' }} />
-        <Stack.Screen name="history/[id]" options={{ title: 'Workout Details' }} />
-        <Stack.Screen name="templates/index" options={{ title: 'Templates' }} />
-        <Stack.Screen name="templates/new" options={{ title: 'New Template' }} />
-      </Stack>
-    </DatabaseProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <DatabaseProvider>
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: '#0A0A0A' },
+            headerTintColor: '#22C55E',
+            headerShadowVisible: false,
+            contentStyle: { backgroundColor: '#0A0A0A' },
+            headerTitleStyle: { color: '#ffffff' },
+          }}
+        >
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="workout/[id]" options={{ title: 'Workout' }} />
+          <Stack.Screen name="history/index" options={{ title: 'History' }} />
+          <Stack.Screen name="history/[id]" options={{ title: 'Workout Details' }} />
+          <Stack.Screen name="programs/index" options={{ headerShown: false }} />
+          <Stack.Screen name="programs/new" options={{ headerShown: false }} />
+          <Stack.Screen name="programs/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="programs/[id]/edit" options={{ headerShown: false }} />
+        </Stack>
+      </DatabaseProvider>
+    </GestureHandlerRootView>
   );
 }

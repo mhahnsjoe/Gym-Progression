@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useDatabase } from '../../db/DatabaseContext';
 import { createTemplate, addTemplateExercise } from '../../db/queries';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 const COMMON_EXERCISES = [
   'Bench Press',
@@ -33,6 +34,18 @@ interface TemplateExerciseItem {
   defaultSets: number;
 }
 
+// Theme colors matching your design
+const colors = {
+  primary: '#00c795',
+  background: '#1a1a1a',
+  card: '#2C2C2C',
+  inputBg: '#17362e',
+  text: '#ffffff',
+  textMuted: '#888888',
+  border: 'rgba(255,255,255,0.05)',
+  borderActive: 'rgba(0,199,149,0.5)',
+};
+
 export default function NewTemplateScreen() {
   const router = useRouter();
   const db = useDatabase();
@@ -40,6 +53,10 @@ export default function NewTemplateScreen() {
   const [exercises, setExercises] = useState<TemplateExerciseItem[]>([]);
   const [showExerciseModal, setShowExerciseModal] = useState(false);
   const [customExercise, setCustomExercise] = useState('');
+
+  // States for custom alerts
+  const [alertConfig, setAlertConfig] = useState<{ title: string, message: string } | null>(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
 
   const handleAddExercise = (name: string) => {
     if (!name.trim()) return;
@@ -60,17 +77,19 @@ export default function NewTemplateScreen() {
 
   const handleSave = async () => {
     if (!templateName.trim()) {
-      Alert.alert('Missing Name', 'Please enter a template name.');
+      setAlertConfig({ title: 'Missing Name', message: 'Please enter a template name.' });
+      setShowErrorModal(true);
       return;
     }
     if (exercises.length === 0) {
-      Alert.alert('No Exercises', 'Add at least one exercise to your template.');
+      setAlertConfig({ title: 'No Exercises', message: 'Add at least one exercise to your template.' });
+      setShowErrorModal(true);
       return;
     }
 
     try {
       const templateId = await createTemplate(db, templateName.trim());
-      
+
       for (const exercise of exercises) {
         await addTemplateExercise(db, templateId, exercise.name, exercise.defaultSets);
       }
@@ -78,7 +97,8 @@ export default function NewTemplateScreen() {
       router.back();
     } catch (error) {
       console.error('Failed to create template:', error);
-      Alert.alert('Error', 'Failed to create template. Please try again.');
+      setAlertConfig({ title: 'Error', message: 'Failed to create template. Please try again.' });
+      setShowErrorModal(true);
     }
   };
 
@@ -89,13 +109,13 @@ export default function NewTemplateScreen() {
         <TextInput
           style={styles.nameInput}
           placeholder="e.g., Push Day, Leg Day, Full Body..."
-          placeholderTextColor="#999"
+          placeholderTextColor="#666"
           value={templateName}
           onChangeText={setTemplateName}
         />
 
         <Text style={styles.label}>Exercises</Text>
-        
+
         {exercises.map((exercise, index) => (
           <View key={index} style={styles.exerciseCard}>
             <View style={styles.exerciseHeader}>
@@ -104,18 +124,18 @@ export default function NewTemplateScreen() {
                 <Text style={styles.removeText}>×</Text>
               </Pressable>
             </View>
-            
+
             <View style={styles.setsRow}>
               <Text style={styles.setsLabel}>Default sets:</Text>
               <View style={styles.setsControl}>
-                <Pressable 
+                <Pressable
                   style={styles.setsButton}
                   onPress={() => handleUpdateSets(index, exercise.defaultSets - 1)}
                 >
                   <Text style={styles.setsButtonText}>−</Text>
                 </Pressable>
                 <Text style={styles.setsValue}>{exercise.defaultSets}</Text>
-                <Pressable 
+                <Pressable
                   style={styles.setsButton}
                   onPress={() => handleUpdateSets(index, exercise.defaultSets + 1)}
                 >
@@ -126,11 +146,11 @@ export default function NewTemplateScreen() {
           </View>
         ))}
 
-        <Pressable 
-          style={styles.addExerciseButton} 
+        <Pressable
+          style={styles.addExerciseButton}
           onPress={() => setShowExerciseModal(true)}
         >
-          <Text style={styles.addExerciseText}>+ Add Exercise</Text>
+          <Text style={styles.addExerciseText}>+ ADD EXERCISE</Text>
         </Pressable>
       </ScrollView>
 
@@ -139,7 +159,7 @@ export default function NewTemplateScreen() {
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </Pressable>
         <Pressable style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>Save Template</Text>
+          <Text style={styles.saveButtonText}>SAVE TEMPLATE</Text>
         </Pressable>
       </View>
 
@@ -148,16 +168,14 @@ export default function NewTemplateScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Exercise</Text>
-            
+
             <TextInput
               style={styles.customInput}
               placeholder="Custom exercise name..."
-              placeholderTextColor="#999"
+              placeholderTextColor="#666"
               value={customExercise}
-              onChangeText={setCustomExercise}
               onSubmitEditing={() => handleAddExercise(customExercise)}
             />
-            
             <ScrollView style={styles.exerciseList}>
               {COMMON_EXERCISES.map((name) => (
                 <Pressable
@@ -170,8 +188,8 @@ export default function NewTemplateScreen() {
               ))}
             </ScrollView>
 
-            <Pressable 
-              style={styles.closeModal} 
+            <Pressable
+              style={styles.closeModal}
               onPress={() => setShowExerciseModal(false)}
             >
               <Text style={styles.closeModalText}>Cancel</Text>
@@ -179,6 +197,15 @@ export default function NewTemplateScreen() {
           </View>
         </View>
       </Modal>
+
+      <ConfirmationModal
+        visible={showErrorModal}
+        title={alertConfig?.title || 'Alert'}
+        description={alertConfig?.message || ''}
+        confirmLabel="OK"
+        onConfirm={() => setShowErrorModal(false)}
+        onCancel={() => setShowErrorModal(false)}
+      />
     </View>
   );
 }
@@ -186,182 +213,208 @@ export default function NewTemplateScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
-    padding: 15,
+    padding: 16,
   },
   label: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '500',
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
     marginBottom: 8,
-    marginTop: 10,
+    marginTop: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   nameInput: {
-    backgroundColor: '#fff',
-    color: '#1a1a1a',
-    padding: 15,
-    borderRadius: 10,
+    backgroundColor: colors.inputBg,
+    color: colors.text,
+    padding: 16,
+    borderRadius: 12,
     fontSize: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(0,199,149,0.3)',
   },
   exerciseCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 10,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
   },
   exerciseHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   exerciseName: {
-    color: '#1a1a1a',
-    fontSize: 16,
-    fontWeight: '600',
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
   },
   removeText: {
-    color: '#e94560',
+    color: colors.textMuted,
     fontSize: 24,
-    fontWeight: 'bold',
-    paddingHorizontal: 5,
+    fontWeight: '300',
+    paddingHorizontal: 8,
   },
   setsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: 12,
+    borderRadius: 8,
   },
   setsLabel: {
-    color: '#666',
+    color: colors.textMuted,
     fontSize: 14,
+    fontWeight: '600',
   },
   setsControl: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 16,
   },
   setsButton: {
-    backgroundColor: '#f5f5f5',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.border,
   },
   setsButtonText: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '600',
   },
   setsValue: {
-    color: '#1a1a1a',
+    color: colors.primary,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     minWidth: 24,
     textAlign: 'center',
   },
   addExerciseButton: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     padding: 20,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
-    marginBottom: 100,
+    marginTop: 12,
+    marginBottom: 120,
     borderWidth: 2,
-    borderColor: '#e94560',
+    borderColor: colors.primary,
     borderStyle: 'dashed',
   },
   addExerciseText: {
-    color: '#e94560',
-    fontSize: 16,
-    fontWeight: '600',
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   bottomButtons: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
-    padding: 15,
-    gap: 10,
-    backgroundColor: '#fff',
+    padding: 16,
+    paddingBottom: 24,
+    gap: 12,
+    backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: colors.border,
   },
   cancelButton: {
     flex: 1,
-    padding: 15,
-    borderRadius: 8,
+    padding: 16,
+    borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   cancelButtonText: {
-    color: '#666',
-    fontWeight: '600',
+    color: colors.textMuted,
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   saveButton: {
     flex: 2,
-    backgroundColor: '#e94560',
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: colors.primary,
+    padding: 16,
+    borderRadius: 12,
     alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   saveButtonText: {
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
+    fontSize: 14,
+    letterSpacing: 1,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
     maxHeight: '80%',
   },
   modalTitle: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    fontWeight: '700',
+    marginBottom: 20,
     textAlign: 'center',
   },
   customInput: {
-    backgroundColor: '#f5f5f5',
-    color: '#1a1a1a',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    backgroundColor: colors.inputBg,
+    color: colors.text,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    fontSize: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(0,199,149,0.3)',
   },
   exerciseList: {
     maxHeight: 300,
   },
   exerciseOption: {
-    padding: 15,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: colors.border,
   },
   exerciseOptionText: {
-    color: '#1a1a1a',
+    color: colors.text,
     fontSize: 16,
   },
   closeModal: {
-    padding: 15,
+    padding: 16,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   closeModalText: {
-    color: '#888',
-    fontSize: 16,
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
