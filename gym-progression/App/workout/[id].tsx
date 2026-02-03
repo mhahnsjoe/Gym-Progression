@@ -25,9 +25,22 @@ import {
   saveWorkoutAsTemplate,
   isWorkoutEmpty,
 } from '../../db/queries';
-import { WorkoutWithExercises, ExerciseWithSets } from '../../db/schema';
+import {
+  addCardioActivity,
+  getCardioForWorkout,
+  deleteCardioActivity,
+  getActivityIcon,
+  getActivityLabel,
+  CARDIO_ACTIVITIES
+} from '../../db/cardioQueries';
+import { CardioActivityType } from '../../db/schema';
+import { checkAndRecordPR } from '../../db/statsQueries';
+import { formatDuration } from '../../utils/calculations';
+import { WorkoutWithExercises, ExerciseWithSets, CardioActivity } from '../../db/schema';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import ConfirmationModal from '../../components/ConfirmationModal';
+import PRCelebration from '../../components/PRCelebration';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 // Theme colors matching your HTML design
 const colors = {
@@ -68,6 +81,18 @@ export default function WorkoutScreen() {
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [expandedExercises, setExpandedExercises] = useState<Set<number>>(new Set());
   const [activeExerciseId, setActiveExerciseId] = useState<number | null>(null);
+  const [showCardioModal, setShowCardioModal] = useState(false);
+  const [newPR, setNewPR] = useState<{ exerciseName: string; weight: number; reps: number } | null>(null);
+
+  // Quick Entry States
+  const [pendingExercise, setPendingExercise] = useState<string | null>(null);
+  const [pendingCardio, setPendingCardio] = useState<CardioActivityType | null>(null);
+  const [entrySets, setEntrySets] = useState('3');
+  const [entryWeight, setEntryWeight] = useState('');
+  const [entryReps, setEntryReps] = useState('');
+  const [entryDuration, setEntryDuration] = useState('30');
+  const [entryDistance, setEntryDistance] = useState('');
+  const [entryCalories, setEntryCalories] = useState('');
 
   // New states for custom modals
   const [showDeleteExerciseModal, setShowDeleteExerciseModal] = useState(false);
@@ -76,8 +101,12 @@ export default function WorkoutScreen() {
 
   const loadWorkout = useCallback(async () => {
     if (!id) return;
-    const data = await getWorkoutWithExercises(db, parseInt(id));
-    setWorkout(data);
+    const workoutId = parseInt(id);
+    const data = await getWorkoutWithExercises(db, workoutId);
+    if (data) {
+      const cardio = await getCardioForWorkout(db, workoutId);
+      setWorkout({ ...data, cardio });
+    }
   }, [db, id]);
 
   useEffect(() => {
@@ -105,9 +134,27 @@ export default function WorkoutScreen() {
 
   const handleAddExercise = async (name: string) => {
     if (!id || !name.trim()) return;
-    await addExercise(db, parseInt(id), name.trim());
+    setPendingExercise(name.trim());
     setShowExerciseModal(false);
     setCustomExercise('');
+  };
+
+  const confirmAddExercise = async () => {
+    if (!id || !pendingExercise) return;
+    const workoutId = parseInt(id);
+    const sets = parseInt(entrySets) || 3;
+    const weight = parseFloat(entryWeight) || 0;
+    const reps = parseInt(entryReps) || 0;
+
+    const exerciseId = await addExercise(db, workoutId, pendingExercise);
+    for (let i = 0; i < sets; i++) {
+      await addSet(db, exerciseId, weight, reps);
+    }
+
+    setPendingExercise(null);
+    setEntrySets('3');
+    setEntryWeight('');
+    setEntryReps('');
     loadWorkout();
   };
 
@@ -117,11 +164,25 @@ export default function WorkoutScreen() {
     loadWorkout();
   };
 
-  const handleUpdateSet = async (setId: number, weight: string, reps: string, exerciseId: number) => {
+  const handleUpdateSet = async (setId: number, weight: string, reps: string, exerciseId: number, exerciseName: string) => {
     setActiveExerciseId(exerciseId);
     const w = parseFloat(weight) || 0;
     const r = parseInt(reps) || 0;
+
+    // Check if this is a completion edit (values changed from 0 to positive)
+    const existingSet = workout?.exercises.find(e => e.id === exerciseId)?.sets.find(s => s.id === setId);
+    const wasIncomplete = !existingSet || (existingSet.weight === 0 && existingSet.reps === 0);
+    const isNowComplete = w > 0 && r > 0;
+
     await updateSet(db, setId, w, r);
+
+    if (wasIncomplete && isNowComplete && id) {
+      const pr = await checkAndRecordPR(db, exerciseName, w, r, parseInt(id));
+      if (pr) {
+        setNewPR({ exerciseName, weight: w, reps: r });
+      }
+    }
+
     loadWorkout();
   };
 
@@ -151,6 +212,35 @@ export default function WorkoutScreen() {
       }
       return newSet;
     });
+  };
+
+  const handleAddCardio = async (type: any) => {
+    if (!id) return;
+    setPendingCardio(type);
+    setShowCardioModal(false);
+  };
+
+  const confirmAddCardio = async () => {
+    if (!id || !pendingCardio) return;
+    const duration = (parseInt(entryDuration) || 0) * 60;
+    const distance = parseFloat(entryDistance) || null;
+    const calories = parseInt(entryCalories) || null;
+
+    await addCardioActivity(db, parseInt(id), pendingCardio, duration, {
+      distance_meters: distance ? distance * 1000 : undefined,
+      calories_burned: calories || undefined
+    });
+
+    setPendingCardio(null);
+    setEntryDuration('30');
+    setEntryDistance('');
+    setEntryCalories('');
+    loadWorkout();
+  };
+
+  const handleDeleteCardio = async (activityId: number) => {
+    await deleteCardioActivity(db, activityId);
+    loadWorkout();
   };
 
   const handleReorder = async (newExercises: ExerciseWithSets[]) => {
@@ -281,7 +371,7 @@ export default function WorkoutScreen() {
                     defaultValue={set.weight > 0 ? set.weight.toString() : ''}
                     onFocus={() => setActiveExerciseId(exercise.id)}
                     onEndEditing={(e) =>
-                      handleUpdateSet(set.id, e.nativeEvent.text, set.reps.toString(), exercise.id)
+                      handleUpdateSet(set.id, e.nativeEvent.text, set.reps.toString(), exercise.id, exercise.name)
                     }
                   />
                   <TextInput
@@ -292,7 +382,7 @@ export default function WorkoutScreen() {
                     defaultValue={set.reps > 0 ? set.reps.toString() : ''}
                     onFocus={() => setActiveExerciseId(exercise.id)}
                     onEndEditing={(e) =>
-                      handleUpdateSet(set.id, set.weight.toString(), e.nativeEvent.text, exercise.id)
+                      handleUpdateSet(set.id, set.weight.toString(), e.nativeEvent.text, exercise.id, exercise.name)
                     }
                   />
                   <View style={styles.copyContainer}>
@@ -345,12 +435,74 @@ export default function WorkoutScreen() {
         onDragEnd={({ data }) => handleReorder(data)}
         renderItem={renderExercise}
         contentContainerStyle={styles.flatListContent}
+        ListHeaderComponent={
+          workout.cardio && workout.cardio.length > 0 ? (
+            <View style={styles.cardioSection}>
+              <Text style={styles.sectionHeader}>CARDIO</Text>
+              {workout.cardio.map((activity) => (
+                <View key={activity.id} style={styles.cardioCard}>
+                  <View style={styles.cardioInfo}>
+                    <MaterialCommunityIcons name={getActivityIcon(activity.activity_type) as any} size={24} color={colors.primary} />
+                    <View style={styles.cardioText}>
+                      <Text style={styles.cardioLabel}>{getActivityLabel(activity.activity_type)}</Text>
+                      <View style={styles.cardioStats}>
+                        <TextInput
+                          style={styles.cardioTimeInput}
+                          keyboardType="number-pad"
+                          placeholder="0"
+                          placeholderTextColor="#555"
+                          defaultValue={Math.floor(activity.duration_seconds / 60).toString()}
+                          onEndEditing={(e) => {
+                            const mins = parseInt(e.nativeEvent.text) || 0;
+                            db.runAsync('UPDATE cardio_activities SET duration_seconds = ? WHERE id = ?', mins * 60, activity.id).then(() => loadWorkout());
+                          }}
+                        />
+                        <TextInput
+                          style={styles.cardioTimeInput}
+                          keyboardType="number-pad"
+                          placeholder="0"
+                          placeholderTextColor="#555"
+                          defaultValue={activity.calories_burned?.toString() || ''}
+                          onEndEditing={(e) => {
+                            const cal = parseInt(e.nativeEvent.text) || 0;
+                            db.runAsync('UPDATE cardio_activities SET calories_burned = ? WHERE id = ?', cal, activity.id).then(() => loadWorkout());
+                          }}
+                        />
+                        <Text style={styles.cardioUnit}>kcal</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Pressable onPress={() => handleDeleteCardio(activity.id)} style={styles.deleteCardioBtn}>
+                    <MaterialCommunityIcons name="close" size={20} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null
+        }
         ListFooterComponent={
-          <Pressable style={styles.addExerciseButton} onPress={() => setShowExerciseModal(true)}>
-            <Text style={styles.addExerciseText}>+ ADD EXERCISE</Text>
-          </Pressable>
+          <View style={styles.footerButtons}>
+            <Pressable style={styles.addExerciseButton} onPress={() => setShowExerciseModal(true)}>
+              <Text style={styles.addExerciseText}>+ ADD EXERCISE</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.addExerciseButton, { borderColor: '#EF4444', marginTop: 12 }]}
+              onPress={() => setShowCardioModal(true)}
+            >
+              <Text style={[styles.addExerciseText, { color: '#EF4444' }]}>+ ADD CARDIO</Text>
+            </Pressable>
+          </View>
         }
       />
+
+      {newPR && (
+        <PRCelebration
+          exerciseName={newPR.exerciseName}
+          weight={newPR.weight}
+          reps={newPR.reps}
+          onComplete={() => setNewPR(null)}
+        />
+      )}
 
       {/* Fixed bottom buttons */}
       <View style={styles.bottomButtonsContainer}>
@@ -426,6 +578,136 @@ export default function WorkoutScreen() {
         </View>
       </Modal>
 
+      {/* Cardio Selection Modal */}
+      <Modal visible={showCardioModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Add Cardio</Text>
+            <ScrollView style={styles.exerciseList}>
+              {CARDIO_ACTIVITIES.map((activity) => (
+                <Pressable
+                  key={activity.type}
+                  style={styles.exerciseOption}
+                  onPress={() => handleAddCardio(activity.type)}
+                >
+                  <View style={styles.cardioOptionRow}>
+                    <MaterialCommunityIcons name={activity.icon as any} size={24} color={colors.primary} />
+                    <Text style={styles.exerciseOptionText}>{activity.label}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable style={styles.closeModal} onPress={() => setShowCardioModal(false)}>
+              <Text style={styles.closeModalText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Quick Entry: Exercise Modal */}
+      <Modal visible={!!pendingExercise} animationType="fade" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.9)' }]}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Quick Entry: {pendingExercise}</Text>
+
+            <View style={styles.entryRow}>
+              <View style={styles.entryField}>
+                <Text style={styles.entryLabel}>SETS</Text>
+                <TextInput
+                  style={styles.entryInput}
+                  keyboardType="number-pad"
+                  value={entrySets}
+                  onChangeText={setEntrySets}
+                  selectTextOnFocus
+                />
+              </View>
+              <View style={styles.entryField}>
+                <Text style={styles.entryLabel}>WEIGHT (kg)</Text>
+                <TextInput
+                  style={styles.entryInput}
+                  keyboardType="decimal-pad"
+                  value={entryWeight}
+                  onChangeText={setEntryWeight}
+                  placeholder="0"
+                  placeholderTextColor="#444"
+                />
+              </View>
+              <View style={styles.entryField}>
+                <Text style={styles.entryLabel}>REPS</Text>
+                <TextInput
+                  style={styles.entryInput}
+                  keyboardType="number-pad"
+                  value={entryReps}
+                  onChangeText={setEntryReps}
+                  placeholder="0"
+                  placeholderTextColor="#444"
+                />
+              </View>
+            </View>
+
+            <Pressable style={styles.finishButtonModal} onPress={confirmAddExercise}>
+              <Text style={styles.finishButtonText}>ADD TO WORKOUT</Text>
+            </Pressable>
+
+            <Pressable style={styles.closeModal} onPress={() => setPendingExercise(null)}>
+              <Text style={styles.closeModalText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Quick Entry: Cardio Modal */}
+      <Modal visible={!!pendingCardio} animationType="fade" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.9)' }]}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Quick Entry: {pendingCardio && getActivityLabel(pendingCardio)}</Text>
+
+            <View style={styles.entryRow}>
+              <View style={[styles.entryField, { flex: 1 }]}>
+                <Text style={styles.entryLabel}>DURATION (min)</Text>
+                <TextInput
+                  style={styles.entryInput}
+                  keyboardType="number-pad"
+                  value={entryDuration}
+                  onChangeText={setEntryDuration}
+                  selectTextOnFocus
+                />
+              </View>
+              <View style={[styles.entryField, { flex: 1 }]}>
+                <Text style={styles.entryLabel}>DISTANCE (km)</Text>
+                <TextInput
+                  style={styles.entryInput}
+                  keyboardType="decimal-pad"
+                  value={entryDistance}
+                  onChangeText={setEntryDistance}
+                  placeholder="Optional"
+                  placeholderTextColor="#444"
+                />
+              </View>
+              <View style={[styles.entryField, { flex: 1 }]}>
+                <Text style={styles.entryLabel}>CALORIES</Text>
+                <TextInput
+                  style={styles.entryInput}
+                  keyboardType="number-pad"
+                  value={entryCalories}
+                  onChangeText={setEntryCalories}
+                  placeholder="Optional"
+                  placeholderTextColor="#444"
+                />
+              </View>
+            </View>
+
+            <Pressable style={styles.finishButtonModal} onPress={confirmAddCardio}>
+              <Text style={styles.finishButtonText}>ADD CARDIO</Text>
+            </Pressable>
+
+            <Pressable style={styles.closeModal} onPress={() => setPendingCardio(null)}>
+              <Text style={styles.closeModalText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* Confirmation Modals */}
       <ConfirmationModal
         visible={showDeleteExerciseModal}
@@ -447,7 +729,7 @@ export default function WorkoutScreen() {
         onCancel={() => setShowCancelWorkoutModal(false)}
         isDanger
       />
-    </View>
+    </View >
   );
 }
 
@@ -519,6 +801,103 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  cardioSection: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 12,
+    paddingLeft: 4,
+  },
+  cardioCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cardioInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    flex: 1,
+  },
+  cardioText: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 20,
+  },
+  cardioLabel: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cardioStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  cardioTimeInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    color: colors.text,
+    width: 45,
+    height: 36,
+    borderRadius: 8,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cardioUnit: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  deleteCardioBtn: {
+    padding: 4,
+  },
+  cardioOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  footerButtons: {
+    marginBottom: 20,
+  },
+  entryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  entryField: {
+    flex: 1,
+  },
+  entryLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  entryInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    color: 'white',
+    height: 60,
+    borderRadius: 16,
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '800',
+    borderWidth: 2,
+    borderColor: 'rgba(34, 197, 94, 0.2)',
   },
   exerciseContent: {
     padding: 16,

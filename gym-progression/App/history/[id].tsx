@@ -4,7 +4,8 @@ import ConfirmationModal from '../../components/ConfirmationModal';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useDatabase } from '../../db/DatabaseContext';
 import { getWorkoutWithExercises, deleteWorkout, WorkoutWithExercisesAndInfo } from '../../db/queries';
-import { WorkoutWithExercises } from '../../db/schema';
+import { getCardioForWorkout, getActivityIcon, getActivityLabel } from '../../db/cardioQueries';
+import { WorkoutWithExercises, CardioActivity } from '../../db/schema';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const colors = {
@@ -27,7 +28,13 @@ export default function WorkoutDetailScreen() {
 
   useEffect(() => {
     if (!id) return;
-    getWorkoutWithExercises(db, parseInt(id)).then(setWorkout);
+    const workoutId = parseInt(id);
+    getWorkoutWithExercises(db, workoutId).then(async (data) => {
+      if (data) {
+        const cardio = await getCardioForWorkout(db, workoutId);
+        setWorkout({ ...data, cardio });
+      }
+    });
   }, [db, id]);
 
   const handleDelete = () => {
@@ -84,6 +91,38 @@ export default function WorkoutDetailScreen() {
             </View>
             <Text style={styles.noteText}>{workout.note}</Text>
           </View>
+        )}
+
+        {workout.cardio && workout.cardio.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>CARDIO</Text>
+            {workout.cardio.map((activity) => (
+              <View key={activity.id} style={styles.cardioCard}>
+                <View style={styles.cardioHeader}>
+                  <MaterialCommunityIcons name={getActivityIcon(activity.activity_type) as any} size={20} color={colors.primary} />
+                  <Text style={styles.cardioLabel}>{getActivityLabel(activity.activity_type).toUpperCase()}</Text>
+                </View>
+                <View style={styles.cardioStats}>
+                  <View style={styles.cardioStatItem}>
+                    <Text style={styles.cardioStatValue}>{Math.round(activity.duration_seconds / 60)}</Text>
+                    <Text style={styles.cardioStatLabel}>MIN</Text>
+                  </View>
+                  {activity.distance_meters && (
+                    <View style={styles.cardioStatItem}>
+                      <Text style={styles.cardioStatValue}>{(activity.distance_meters / 1000).toFixed(2)}</Text>
+                      <Text style={styles.cardioStatLabel}>KM</Text>
+                    </View>
+                  )}
+                  {activity.calories_burned && (
+                    <View style={styles.cardioStatItem}>
+                      <Text style={styles.cardioStatValue}>{activity.calories_burned}</Text>
+                      <Text style={styles.cardioStatLabel}>KCAL</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            ))}
+          </>
         )}
 
         <Text style={styles.sectionTitle}>EXERCISES</Text>
@@ -240,6 +279,44 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
+  },
+  cardioCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cardioHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  cardioLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  cardioStats: {
+    flexDirection: 'row',
+    gap: 24,
+  },
+  cardioStatItem: {
+    alignItems: 'center',
+  },
+  cardioStatValue: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  cardioStatLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 2,
   },
   exerciseCard: {
     backgroundColor: colors.card,

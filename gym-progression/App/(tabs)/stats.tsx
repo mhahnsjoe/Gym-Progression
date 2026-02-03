@@ -1,17 +1,23 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useDatabase } from '../../db/DatabaseContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-    getWorkoutVolumeHistory,
-    getActiveProgram,
-    VolumeStat,
-    Timeframe,
-    getTimeframeVolumeStats,
-    TimeframeStats
-} from '../../db/queries';
+    getTotalStrengthVolume,
+    getStrengthWorkoutCount,
+    getWeeklyStrengthWorkouts,
+    getMuscleVolumeDistribution,
+    getRecentPRs,
+    getTotalCardioDuration,
+    getCardioWorkoutCount,
+    getWeeklyCardioMinutes,
+    getCardioDistribution,
+    getTotalCardioCalories
+} from '../../db/statsQueries';
+import { formatDuration } from '../../utils/calculations';
+import { getActivityLabel } from '../../db/cardioQueries';
 
 const { width } = Dimensions.get('window');
 
@@ -25,35 +31,81 @@ const colors = {
     border: 'rgba(255,255,255,0.1)',
 };
 
+type StatPeriod = 7 | 30 | 90 | 365;
+
+interface StatsData {
+    strengthVolume: number;
+    strengthCount: number;
+    cardioDuration: number;
+    cardioCount: number;
+    cardioCalories: number;
+    muscleDistribution: { muscle: string; volume: number; percentage: number }[];
+    recentPRs: any[];
+    cardioMix: { type: string; duration: number; percentage: number }[];
+    strengthChart: { week: string; count: number }[];
+    cardioChart: { week: string; minutes: number }[];
+}
+
 export default function StatsScreen() {
     const router = useRouter();
     const db = useDatabase();
 
-    const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('month');
-    const [stats, setStats] = useState<TimeframeStats>({ totalVolume: 0, averageVolume: 0, workoutCount: 0 });
-    const [activeProgramName, setActiveProgramName] = useState<string | null>(null);
-    const [history, setHistory] = useState<VolumeStat[]>([]);
-    const [maxVolume, setMaxVolume] = useState(1);
+    const [period, setPeriod] = useState<StatPeriod>(30);
+    const [stats, setStats] = useState<StatsData>({
+        strengthVolume: 0,
+        strengthCount: 0,
+        cardioDuration: 0,
+        cardioCount: 0,
+        cardioCalories: 0,
+        muscleDistribution: [],
+        recentPRs: [],
+        cardioMix: [],
+        strengthChart: [],
+        cardioChart: []
+    });
 
     const loadData = useCallback(async () => {
         try {
-            const timeframeStats = await getTimeframeVolumeStats(db, selectedTimeframe);
-            setStats(timeframeStats);
+            const [
+                vol,
+                sCount,
+                cDur,
+                cCount,
+                cCal,
+                mDist,
+                prs,
+                cDist,
+                sChart,
+                cChart
+            ] = await Promise.all([
+                getTotalStrengthVolume(db, period),
+                getStrengthWorkoutCount(db, period),
+                getTotalCardioDuration(db, period),
+                getCardioWorkoutCount(db, period),
+                getTotalCardioCalories(db, period),
+                getMuscleVolumeDistribution(db, period),
+                getRecentPRs(db, period),
+                getCardioDistribution(db, period),
+                getWeeklyStrengthWorkouts(db, 8),
+                getWeeklyCardioMinutes(db, 8)
+            ]);
 
-            const activeProg = await getActiveProgram(db);
-            setActiveProgramName(activeProg?.name || null);
-
-            const hist = await getWorkoutVolumeHistory(db, 7);
-            setHistory(hist);
-
-            if (hist.length > 0) {
-                const max = Math.max(...hist.map(h => h.volume));
-                setMaxVolume(max > 0 ? max : 1);
-            }
+            setStats({
+                strengthVolume: vol,
+                strengthCount: sCount,
+                cardioDuration: cDur,
+                cardioCount: cCount,
+                cardioCalories: cCal,
+                muscleDistribution: mDist,
+                recentPRs: prs,
+                cardioMix: cDist,
+                strengthChart: sChart,
+                cardioChart: cChart
+            });
         } catch (e) {
-            console.error(e);
+            console.error('Failed to load stats:', e);
         }
-    }, [db, selectedTimeframe]);
+    }, [db, period]);
 
     useFocusEffect(
         useCallback(() => {
@@ -61,111 +113,140 @@ export default function StatsScreen() {
         }, [loadData])
     );
 
-    const formatVolume = (vol: number) => {
-        if (vol >= 1000000) return (vol / 1000000).toFixed(2) + 'M kg';
-        if (vol >= 1000) return (vol / 1000).toFixed(1) + 'k kg';
-        return Math.round(vol).toString() + ' kg';
-    };
-
-    const formatDate = (dateStr: string) => {
-        const date = new Date(dateStr);
-        return date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-    };
-
-    const timeframeLabel = {
-        week: 'This Week',
-        month: 'This Month',
-        year: 'This Year',
-        all: 'All Time'
+    const formatWeight = (vol: number) => {
+        if (vol >= 1000) return (vol / 1000).toFixed(1) + 'k';
+        return Math.round(vol).toString();
     };
 
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Statistics</Text>
+                <Text style={styles.headerTitle}>Insights</Text>
             </View>
 
             <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
 
-                {/* Timeframe Selector */}
+                {/* Period Selector */}
                 <View style={styles.selectorContainer}>
-                    {(['week', 'month', 'year', 'all'] as Timeframe[]).map((tf) => (
+                    {[7, 30, 90, 365].map((p) => (
                         <Pressable
-                            key={tf}
-                            onPress={() => setSelectedTimeframe(tf)}
+                            key={p}
+                            onPress={() => setPeriod(p as StatPeriod)}
                             style={[
                                 styles.selectorItem,
-                                selectedTimeframe === tf && styles.selectorItemActive
+                                period === p && styles.selectorItemActive
                             ]}
                         >
                             <Text style={[
                                 styles.selectorText,
-                                selectedTimeframe === tf && styles.selectorTextActive
+                                period === p && styles.selectorTextActive
                             ]}>
-                                {tf.toUpperCase()}
+                                {p === 365 ? '1Y' : `${p}D`}
                             </Text>
                         </Pressable>
                     ))}
                 </View>
 
-                <Text style={styles.sectionTitle}>VOLUME OVERVIEW - {timeframeLabel[selectedTimeframe].toUpperCase()}</Text>
-
-                {/* Stats Grid */}
-                <View style={styles.statsGrid}>
-                    <View style={styles.statCard}>
-                        <View style={styles.iconContainer}>
-                            <MaterialCommunityIcons name="calculator" size={20} color={colors.primary} />
+                {/* Top Level Summary Cards */}
+                <View style={styles.summaryRow}>
+                    <View style={styles.summaryCard}>
+                        <View style={styles.summaryHeader}>
+                            <MaterialCommunityIcons name="weight-lifter" size={20} color={colors.primary} />
+                            <Text style={styles.summaryTitle}>STRENGTH</Text>
                         </View>
-                        <Text style={styles.statValue}>{formatVolume(stats.averageVolume)}</Text>
-                        <Text style={styles.statLabel}>AVG / WORKOUT</Text>
+                        <Text style={styles.summaryValue}>{formatWeight(stats.strengthVolume)}<Text style={styles.unit}>kg</Text></Text>
+                        <Text style={styles.summarySub}>{stats.strengthCount} Workouts</Text>
                     </View>
 
-                    <View style={styles.statCard}>
-                        <View style={[styles.iconContainer, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                            <MaterialCommunityIcons name="sigma" size={20} color="#3B82F6" />
+                    <View style={styles.summaryCard}>
+                        <View style={styles.summaryHeader}>
+                            <MaterialCommunityIcons name="heart-pulse" size={20} color="#EF4444" />
+                            <Text style={[styles.summaryTitle, { color: '#EF4444' }]}>CARDIO</Text>
                         </View>
-                        <Text style={styles.statValue}>{formatVolume(stats.totalVolume)}</Text>
-                        <Text style={[styles.statLabel, { color: '#3B82F6' }]}>TOTAL LIFTED</Text>
+                        <View style={styles.cardioSummaryGrid}>
+                            <View style={styles.statItem}>
+                                <Text style={styles.statValue}>{formatDuration(stats.cardioDuration)}</Text>
+                                <Text style={styles.statLabel}>DURATION</Text>
+                            </View>
+                            <View style={styles.statItem}>
+                                <Text style={styles.statValue}>{stats.cardioCalories.toLocaleString()}</Text>
+                                <Text style={styles.statLabel}>CALORIES</Text>
+                            </View>
+                            <View style={styles.statItem}>
+                                <Text style={styles.statValue}>{stats.cardioCount}</Text>
+                                <Text style={styles.statLabel}>SESSIONS</Text>
+                            </View>
+                        </View>
                     </View>
                 </View>
 
-                {/* Workout Count Info */}
-                <View style={styles.infoRow}>
-                    <MaterialCommunityIcons name="calendar-check" size={16} color={colors.textMuted} />
-                    <Text style={styles.infoText}>
-                        Based on {stats.workoutCount} finished workouts {selectedTimeframe !== 'all' ? timeframeLabel[selectedTimeframe].toLowerCase() : ''}
-                    </Text>
+                {/* Muscle Distribution */}
+                <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Muscle Focus</Text>
+                    {stats.muscleDistribution.length > 0 ? (
+                        stats.muscleDistribution.slice(0, 5).map((item, idx) => (
+                            <View key={item.muscle} style={styles.distRow}>
+                                <View style={styles.distLabelContainer}>
+                                    <Text style={styles.distLabel}>{item.muscle.toUpperCase()}</Text>
+                                    <Text style={styles.distPercent}>{item.percentage}%</Text>
+                                </View>
+                                <View style={styles.barBg}>
+                                    <View style={[styles.barFill, { width: `${item.percentage}%` }]} />
+                                </View>
+                            </View>
+                        ))
+                    ) : (
+                        <Text style={styles.noDataText}>No strength data for this period</Text>
+                    )}
                 </View>
 
-                {/* Chart Section */}
-                <View style={styles.chartCard}>
-                    <Text style={styles.chartTitle}>Recent Progress (Volume)</Text>
-                    <View style={styles.chartContainer}>
-                        {history.length === 0 ? (
-                            <Text style={styles.noDataText}>No workout data yet</Text>
-                        ) : (
-                            history.map((item, index) => {
-                                const heightPercentage = (item.volume / maxVolume) * 100;
-                                return (
-                                    <View key={index} style={styles.barContainer}>
-                                        <View style={styles.barWrapper}>
-                                            <View style={[styles.bar, { height: `${heightPercentage}%` }]} />
-                                        </View>
-                                        <Text style={styles.barDate}>{formatDate(item.date)}</Text>
-                                        <Text style={styles.barValue}>{formatVolume(item.volume).replace(' kg', '')}</Text>
+                {/* Recent PRs */}
+                <View style={styles.card}>
+                    <View style={styles.cardHeader}>
+                        <Text style={styles.cardTitle}>Recent PRs</Text>
+                        <MaterialCommunityIcons name="trophy" size={20} color="#FBBF24" />
+                    </View>
+                    {stats.recentPRs.length > 0 ? (
+                        stats.recentPRs.slice(0, 3).map((pr, idx) => (
+                            <View key={pr.id} style={styles.prRow}>
+                                <Text style={styles.prName}>{pr.exercise_name}</Text>
+                                <View style={styles.prValues}>
+                                    <Text style={styles.prValueMain}>{pr.weight}kg</Text>
+                                    <Text style={styles.prValueSub}>× {pr.reps}</Text>
+                                </View>
+                            </View>
+                        ))
+                    ) : (
+                        <Text style={styles.noDataText}>No records in this period</Text>
+                    )}
+                    <Pressable
+                        style={styles.viewMoreButton}
+                        onPress={() => {/* TODO: Show all PRs screen */ }}
+                    >
+                        <Text style={styles.viewMoreText}>VIEW ALL RECORDS</Text>
+                    </Pressable>
+                </View>
+
+                {/* Cardio Distribution */}
+                {stats.cardioMix.length > 0 && (
+                    <View style={[styles.card, { marginBottom: 32 }]}>
+                        <Text style={styles.cardTitle}>Cardio Mix</Text>
+                        <View style={styles.distTable}>
+                            {stats.cardioMix.map((item) => (
+                                <View key={item.type} style={styles.distRow}>
+                                    <View style={styles.distLabelContainer}>
+                                        <Text style={styles.distLabel}>{getActivityLabel(item.type as any).toUpperCase()}</Text>
+                                        <Text style={styles.distPercent}>{Math.round(item.duration / 60)} min</Text>
                                     </View>
-                                );
-                            })
-                        )}
-                    </View>
-                </View>
-
-                {activeProgramName && (
-                    <View style={styles.programBanner}>
-                        <MaterialCommunityIcons name="trophy-variant" size={20} color={colors.primary} />
-                        <Text style={styles.programBannerText}>ACTIVE PROGRAM: {activeProgramName.toUpperCase()}</Text>
+                                    <View style={styles.barBg}>
+                                        <View style={[styles.barFill, { width: `${item.percentage}%`, backgroundColor: '#EF4444' }]} />
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
                     </View>
                 )}
+
             </ScrollView>
         </View>
     );
@@ -177,181 +258,207 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background,
     },
     header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
         paddingTop: 60,
-        paddingHorizontal: 16,
+        paddingHorizontal: 20,
         paddingBottom: 20,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
+        alignItems: 'center',
     },
     headerTitle: {
         color: 'white',
-        fontSize: 18,
-        fontWeight: '800',
+        fontSize: 20,
+        fontWeight: '900',
+        letterSpacing: 1,
     },
     content: {
         flex: 1,
     },
     scrollContent: {
-        padding: 16,
+        padding: 20,
         paddingBottom: 40,
     },
     selectorContainer: {
         flexDirection: 'row',
         backgroundColor: colors.card,
-        borderRadius: 16,
+        borderRadius: 12,
         padding: 4,
         marginBottom: 24,
-        borderWidth: 1,
-        borderColor: colors.border,
     },
     selectorItem: {
         flex: 1,
         paddingVertical: 10,
         alignItems: 'center',
-        borderRadius: 12,
+        borderRadius: 8,
     },
     selectorItemActive: {
         backgroundColor: colors.surface,
     },
     selectorText: {
         color: colors.textMuted,
-        fontSize: 10,
+        fontSize: 12,
         fontWeight: '800',
-        letterSpacing: 1,
     },
     selectorTextActive: {
         color: colors.primary,
     },
-    sectionTitle: {
-        color: colors.textMuted,
-        fontSize: 10,
-        fontWeight: '900',
-        letterSpacing: 2,
-        marginBottom: 16,
-    },
-    statsGrid: {
+    summaryRow: {
         flexDirection: 'row',
-        gap: 12,
-        marginBottom: 16,
+        gap: 16,
+        marginBottom: 24,
     },
-    statCard: {
+    summaryCard: {
         flex: 1,
         backgroundColor: colors.card,
-        borderRadius: 24,
+        borderRadius: 20,
         padding: 20,
         borderWidth: 1,
         borderColor: colors.border,
     },
-    iconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 14,
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 16,
-    },
-    statValue: {
-        color: 'white',
-        fontSize: 20,
-        fontWeight: '900',
-        marginBottom: 4,
-    },
-    statLabel: {
-        color: colors.primary,
-        fontSize: 10,
-        fontWeight: '800',
-        letterSpacing: 0.5,
-    },
-    infoRow: {
+    summaryHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        marginBottom: 24,
-        paddingHorizontal: 4,
+        marginBottom: 12,
     },
-    infoText: {
+    summaryTitle: {
+        color: colors.primary,
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1,
+    },
+    summaryValue: {
+        color: 'white',
+        fontSize: 24,
+        fontWeight: '900',
+    },
+    unit: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginLeft: 2,
+    },
+    summarySub: {
+        color: colors.textMuted,
+        fontSize: 12,
+        marginTop: 4,
+    },
+    cardioSummaryGrid: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 8,
+    },
+    statItem: {
+        alignItems: 'center',
+        flex: 1,
+    },
+    statValue: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '900',
+    },
+    statLabel: {
+        color: colors.textMuted,
+        fontSize: 8,
+        fontWeight: '800',
+        marginTop: 4,
+    },
+    card: {
+        backgroundColor: colors.card,
+        borderRadius: 20,
+        padding: 20,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    cardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    cardTitle: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '800',
+        marginBottom: 20,
+    },
+    distRow: {
+        marginBottom: 16,
+    },
+    distLabelContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 6,
+    },
+    distLabel: {
+        color: 'white',
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+    },
+    distPercent: {
+        color: colors.textMuted,
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    distTable: {
+        gap: 4,
+    },
+    barBg: {
+        height: 6,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 3,
+        overflow: 'hidden',
+    },
+    barFill: {
+        height: '100%',
+        backgroundColor: colors.primary,
+        borderRadius: 3,
+    },
+    prRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255,255,255,0.05)',
+    },
+    prName: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '600',
+        flex: 1,
+    },
+    prValues: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 4,
+    },
+    prValueMain: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '900',
+    },
+    prValueSub: {
         color: colors.textMuted,
         fontSize: 12,
         fontWeight: '600',
     },
-    chartCard: {
-        backgroundColor: colors.card,
-        borderRadius: 24,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: colors.border,
-        height: 300,
-        marginBottom: 24,
+    viewMoreButton: {
+        alignItems: 'center',
+        marginTop: 20,
+        paddingVertical: 10,
     },
-    chartTitle: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: '800',
-        marginBottom: 24,
-    },
-    chartContainer: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        justifyContent: 'space-between',
-        paddingBottom: 20,
+    viewMoreText: {
+        color: colors.primary,
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1,
     },
     noDataText: {
         color: colors.textMuted,
-        width: '100%',
-        textAlign: 'center',
-        marginTop: 80,
-    },
-    barContainer: {
-        alignItems: 'center',
-        flex: 1,
-        height: '100%',
-        justifyContent: 'flex-end',
-    },
-    barWrapper: {
-        flex: 1,
-        width: 8,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 4,
-        overflow: 'hidden',
-        justifyContent: 'flex-end',
-        marginBottom: 8,
-    },
-    bar: {
-        width: '100%',
-        backgroundColor: colors.primary,
-        borderRadius: 4,
-        minHeight: 4,
-    },
-    barDate: {
-        color: colors.textMuted,
-        fontSize: 10,
-        marginBottom: 2,
-    },
-    barValue: {
-        color: 'white',
-        fontSize: 8,
-        fontWeight: '700',
-    },
-    programBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        backgroundColor: 'rgba(34, 197, 94, 0.05)',
-        padding: 16,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(34, 197, 94, 0.1)',
-    },
-    programBannerText: {
-        color: colors.primary,
         fontSize: 12,
-        fontWeight: '800',
-        letterSpacing: 0.5,
+        textAlign: 'center',
+        marginVertical: 20,
     }
 });
-
