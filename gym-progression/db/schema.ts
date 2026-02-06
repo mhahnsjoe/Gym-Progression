@@ -134,6 +134,26 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
     );
   `);
 
+  // Phase 1: New tables for v2 plan
+  await db.execAsync(`
+    -- Indexes for performance
+    CREATE INDEX IF NOT EXISTS idx_cardio_workout ON cardio_activities(workout_id);
+    CREATE INDEX IF NOT EXISTS idx_pr_exercise ON personal_records(exercise_name);
+    CREATE INDEX IF NOT EXISTS idx_pr_e1rm ON personal_records(estimated_1rm);
+  `);
+
+  // Check if cardio_activities has calories_burned column
+  const cardioTableInfo = await db.getAllAsync<{ name: string }>('PRAGMA table_info(cardio_activities);');
+  const hasCaloriesBurned = cardioTableInfo.some(col => col.name === 'calories_burned');
+
+  if (!hasCaloriesBurned) {
+    try {
+      await db.execAsync('ALTER TABLE cardio_activities ADD COLUMN calories_burned INTEGER;');
+    } catch (e) {
+      console.log('Cardio calories_burned column migration failed', e);
+    }
+  }
+
   return db;
 }
 
@@ -168,8 +188,61 @@ export interface ExerciseWithSets extends Exercise {
   sets: Set[];
 }
 
+// Cardio types
+export type CardioActivityType =
+  | 'treadmill'
+  | 'bike'
+  | 'rowing'
+  | 'elliptical'
+  | 'stairmaster'
+  | 'running'
+  | 'cycling'
+  | 'swimming'
+  | 'walking'
+  | 'other';
+
+export interface CardioActivity {
+  id: number;
+  workout_id: number;
+  activity_type: CardioActivityType;
+  duration_seconds: number;
+  distance_meters: number | null;
+  calories_burned: number | null;
+  avg_heart_rate: number | null;
+  notes: string | null;
+  order_index: number;
+}
+
+// Personal record
+export interface PersonalRecord {
+  id: number;
+  exercise_name: string;
+  weight: number;
+  reps: number;
+  estimated_1rm: number;
+  achieved_at: string;
+  workout_id: number | null;
+}
+
+// Exercise muscle mapping
+export interface ExerciseMuscle {
+  id: number;
+  exercise_name: string;
+  primary_muscle: string;
+  movement_type: string | null;
+}
+
 export interface WorkoutWithExercises extends Workout {
   exercises: ExerciseWithSets[];
+  cardio: CardioActivity[];
+}
+
+// Stats types
+export interface WorkoutTypeSummary {
+  hasStrength: boolean;
+  hasCardio: boolean;
+  strengthVolume: number;
+  cardioDuration: number;
 }
 
 // Template types
